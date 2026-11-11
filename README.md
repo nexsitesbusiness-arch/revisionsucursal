@@ -22,19 +22,11 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
    Se puede exportar a Excel/CSV, imprimir o compartir el resumen por WhatsApp. Si se reabre el conteo, queda registrado.
 
-## Colores (estilo bento)
+## Diseño
 
-Botón 🎨 arriba a la derecha. Cuatro paletas; se recuerda la elegida en cada equipo:
+Estilo **Ejecutivo**: barra azul marino, azul corporativo, tablas ordenadas, íconos de línea y botones redondos. El botón de la luna (arriba a la derecha) cambia a **modo oscuro**, útil en bodegas con poca luz.
 
-| Paleta | Uso sugerido |
-|---|---|
-| **Menta** (crema + verde salvia) | Predeterminada, tono farmacia |
-| **Lavanda** (lila + durazno) | Más cálida y suave |
-| **Océano** (azul marino + coral) | Corporativa, alto contraste |
-| **Grafito** (oscuro + lima) | Bodega con poca luz; ahorra batería |
-
-<img src="docs/capturas/paletas-inicio.png" width="900">
-<img src="docs/capturas/paletas-diferencias.png" width="900">
+<img src="docs/capturas/tab-nocturno-6-diferencias.png" width="420"> <img src="docs/capturas/cel-ejecutivo-4-conteo.png" width="260">
 
 ## Instalar en la tablet (funciona sin internet)
 

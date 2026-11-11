@@ -1,79 +1,119 @@
 <!doctype html>
-<html lang="es" data-theme="menta">
+<html lang="es" data-theme="ejecutivo">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f4f1ea">
+  <meta name="theme-color" content="#13233a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Revisión">
   <title>Revisión de Pedidos</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="styles.css">
   <script>
-    // Aplica el tema guardado antes de pintar, para que no parpadee.
+    // Aplica el modo guardado (claro/oscuro) antes de pintar.
     try {
       var t = localStorage.getItem('revision-tema');
-      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'grafito' : 'menta';
+      if (t !== 'ejecutivo' && t !== 'nocturno') t = 'ejecutivo';
       document.documentElement.dataset.theme = t;
     } catch (e) {}
   </script>
 </head>
 <body>
+  <!-- Íconos de línea -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M11 8v8M15 8v8"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></symbol>
+    <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-flash" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <button class="icon-btn" id="btnHome" title="Inicio" aria-label="Inicio">⌂</button>
-    <h1 id="title">Revisión de Pedidos</h1>
-    <button class="icon-btn" id="btnTheme" title="Colores" aria-label="Cambiar colores">🎨</button>
+    <button class="brand" id="btnHome" title="Ir al inicio">
+      <span class="logo"><svg class="ic"><use href="#i-check"/></svg></span>
+      <span class="brand-name">Revisión de Pedidos</span>
+    </button>
+    <span class="crumb" id="title"></span>
+    <span class="sp"></span>
+    <button class="icon-btn" id="btnTheme" title="Modo claro / oscuro" aria-label="Cambiar modo claro u oscuro"><svg class="ic"><use href="#i-moon"/></svg></button>
   </header>
 
   <main id="app">
     <!-- INICIO -->
     <section id="view-home" class="view">
-      <div class="bento">
-        <button class="tile t1 span2 tall cta" id="btnNewOrder">
-          <span class="tile-icon">＋</span>
-          <span class="tile-big">Cargar pedido</span>
-          <span class="tile-sub">Desde Excel, CSV o a mano (central)</span>
-        </button>
-        <label class="tile t2 cta">
-          <span class="tile-icon">📂</span>
-          <span class="tile-title">Abrir archivo de pedido</span>
-          <span class="tile-sub">Archivo .pedido recibido</span>
-          <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
-        </label>
-        <div class="tile t3" id="statCounting"></div>
-        <div class="tile t4" id="statDone"></div>
-        <div class="tile t5" id="statDiff"></div>
+      <div class="page-head">
+        <div>
+          <span class="kicker">Central</span>
+          <h2 class="page-title">Pedidos</h2>
+        </div>
+        <div class="actions">
+          <label class="btn">
+            <svg class="ic"><use href="#i-folder"/></svg> Abrir archivo
+            <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
+          </label>
+          <button class="btn primary" id="btnNewOrder"><svg class="ic"><use href="#i-plus"/></svg> Nuevo pedido</button>
+        </div>
       </div>
-      <h2 class="section-h">Pedidos recientes</h2>
-      <div id="orderList" class="order-grid"></div>
+      <div class="kpis" id="homeStats"></div>
+      <div class="card" id="orderList"></div>
     </section>
 
     <!-- CARGA DEL PEDIDO (CENTRAL) -->
     <section id="view-load" class="view" hidden>
-      <div class="card">
-        <h2>1. Datos del pedido</h2>
+      <div class="page-head">
+        <div>
+          <span class="kicker">Central</span>
+          <h2 class="page-title">Nuevo pedido</h2>
+        </div>
+      </div>
+
+      <div class="card pad">
+        <h3 class="card-title">Datos del pedido</h3>
         <div class="grid2">
-          <label>Nombre / N° de pedido
+          <label class="field">Nombre o N° de pedido
             <input id="orderName" placeholder="Ej: Pedido 1052">
           </label>
-          <label>Sucursal
+          <label class="field">Sucursal
             <input id="orderBranch" placeholder="Ej: Sucursal Centro">
           </label>
         </div>
       </div>
 
-      <div class="card">
-        <h2>2. Productos</h2>
-        <p class="muted">Sube el Excel o CSV del pedido. Columnas reconocidas: <b>código</b> (de barras), <b>producto</b>, <b>lote</b>, <b>precio</b>, <b>cantidad</b> y opcional <b>vencimiento</b>.</p>
-        <div class="row gap">
+      <div class="card pad">
+        <h3 class="card-title">Productos</h3>
+        <p class="muted">Sube el Excel o CSV del pedido. Columnas que se reconocen: <b>código</b> de barras, <b>producto</b>, <b>lote</b>, <b>precio</b>, <b>cantidad</b> y, si quieres, <b>vencimiento</b>.</p>
+        <div class="actions">
           <label class="btn primary">
-            📄 Subir Excel / CSV
+            <svg class="ic"><use href="#i-upload"/></svg> Subir Excel o CSV
             <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv,.txt" hidden>
           </label>
-          <button class="btn" id="btnPaste">📋 Pegar desde Excel</button>
-          <a class="btn" href="ejemplo-pedido.csv" download>⬇ Plantilla de ejemplo</a>
+          <button class="btn" id="btnPaste"><svg class="ic"><use href="#i-clipboard"/></svg> Pegar desde Excel</button>
+          <a class="btn ghost" href="ejemplo-pedido.csv" download><svg class="ic"><use href="#i-download"/></svg> Plantilla de ejemplo</a>
         </div>
 
         <div id="pasteBox" hidden>
@@ -82,7 +122,7 @@
         </div>
 
         <details class="manual">
-          <summary>Agregar producto a mano</summary>
+          <summary>Agregar un producto a mano</summary>
           <form id="manualForm" class="grid-manual">
             <input name="codigo" placeholder="Código de barras" inputmode="numeric">
             <input name="producto" placeholder="Producto *" required>
@@ -90,104 +130,114 @@
             <input name="precio" placeholder="Precio" inputmode="decimal">
             <input name="cantidad" placeholder="Cantidad *" inputmode="numeric" required>
             <input name="vencimiento" placeholder="Vencimiento">
-            <button class="btn primary">Agregar</button>
+            <button class="btn primary"><svg class="ic"><use href="#i-plus"/></svg> Agregar</button>
           </form>
         </details>
 
         <div id="loadPreview"></div>
       </div>
 
-      <div class="sticky-actions">
-        <button class="btn primary big" id="btnSaveOrder">💾 Guardar pedido</button>
+      <div class="footbar">
+        <button class="btn primary" id="btnSaveOrder"><svg class="ic"><use href="#i-save"/></svg> Guardar pedido</button>
       </div>
     </section>
 
-    <!-- DETALLE DEL PEDIDO / ENVÍO -->
+    <!-- DETALLE DEL PEDIDO -->
     <section id="view-order" class="view" hidden>
-      <div class="bento">
-        <div class="tile t0 span4">
-          <span class="tile-kicker" id="orderMeta"></span>
-          <span class="tile-big" id="orderTitle"></span>
+      <div class="page-head">
+        <div>
+          <span class="kicker" id="orderMeta"></span>
+          <h2 class="page-title" id="orderTitle"></h2>
         </div>
-        <button class="tile accent span2 tall cta" id="btnStartCount">
-          <span class="tile-icon">📦</span>
-          <span class="tile-big">Contar pedido</span>
-          <span class="tile-sub" id="orderProgress"></span>
-        </button>
-        <button class="tile t1 cta" id="btnShowResults">
-          <span class="tile-icon">📊</span>
-          <span class="tile-title">Ver diferencias</span>
-          <span class="tile-sub">Al terminar el conteo</span>
-        </button>
-        <button class="tile t2 cta" id="btnShareLink">
-          <span class="tile-icon">🔗</span>
-          <span class="tile-title">Enviar a sucursal</span>
-          <span class="tile-sub">Enlace por WhatsApp o correo</span>
-        </button>
-        <button class="tile t3 cta" id="btnDownloadOrder">
-          <span class="tile-icon">⬇</span>
-          <span class="tile-title">Descargar archivo</span>
-          <span class="tile-sub">Para enviar como adjunto</span>
-        </button>
-        <button class="tile t4 cta" id="btnDeleteOrder">
-          <span class="tile-icon">🗑</span>
-          <span class="tile-title">Eliminar</span>
-          <span class="tile-sub">Borra pedido y conteo</span>
-        </button>
+        <div class="actions">
+          <button class="btn" id="btnShowResults"><svg class="ic"><use href="#i-chart"/></svg> Ver diferencias</button>
+          <button class="btn primary" id="btnStartCount"><svg class="ic"><use href="#i-scan"/></svg> Contar pedido</button>
+        </div>
       </div>
-      <p class="small muted center" id="shareInfo"></p>
+
+      <div class="card pad">
+        <div class="row-between">
+          <h3 class="card-title">Avance del conteo</h3>
+          <span class="muted small" id="orderProgress"></span>
+        </div>
+        <div class="progress"><div class="bar" id="orderBar"></div></div>
+      </div>
+
+      <div class="card pad">
+        <h3 class="card-title">Enviar a la sucursal</h3>
+        <p class="muted">La sucursal abre el enlace o el archivo y cuenta <b>sin ver las cantidades</b> enviadas.</p>
+        <div class="actions">
+          <button class="btn primary" id="btnShareLink"><svg class="ic"><use href="#i-link"/></svg> Compartir enlace</button>
+          <button class="btn" id="btnDownloadOrder"><svg class="ic"><use href="#i-download"/></svg> Descargar archivo</button>
+        </div>
+        <p class="small muted" id="shareInfo"></p>
+      </div>
+
+      <div class="danger-zone">
+        <button class="btn ghost danger" id="btnDeleteOrder"><svg class="ic"><use href="#i-trash"/></svg> Eliminar pedido</button>
+      </div>
     </section>
 
     <!-- CONTEO (SUCURSAL) -->
     <section id="view-count" class="view" hidden>
       <div class="count-head">
-        <div class="progress-row">
-          <div class="progress"><div class="bar" id="progressBar"></div></div>
-          <span class="small" id="progressText"></span>
+        <div class="page-head tight">
+          <div>
+            <span class="kicker" id="countKicker"></span>
+            <h2 class="page-title">Conteo del pedido</h2>
+          </div>
+          <span class="muted small" id="progressText"></span>
         </div>
+        <div class="progress"><div class="bar" id="progressBar"></div></div>
         <div class="search-row">
-          <input type="search" id="search" placeholder="🔎 Buscar producto, código o lote" autocomplete="off">
-          <button class="btn primary" id="btnScan" title="Escanear con cámara">📷 Escanear</button>
+          <label class="search">
+            <svg class="ic"><use href="#i-search"/></svg>
+            <input type="search" id="search" placeholder="Buscar producto, código o lote" autocomplete="off">
+          </label>
+          <button class="btn primary" id="btnScan"><svg class="ic"><use href="#i-scan"/></svg> Escanear</button>
         </div>
-        <div class="row gap small-gap">
-          <label class="inline small">Unidades por escaneo
+        <div class="options-row">
+          <label class="inline small"><span class="long">Unidades por escaneo</span><span class="short">Unid./escaneo</span>
             <input type="number" id="scanQty" value="1" min="1" class="tiny">
           </label>
-          <label class="inline small"><input type="checkbox" id="onlyPending"> Solo sin contar</label>
-          <button class="btn small" id="btnUndo">↶ Deshacer</button>
+          <label class="inline small"><input type="checkbox" id="onlyPending"> <span class="long">Solo sin contar</span><span class="short">Pendientes</span></label>
+          <button class="btn sm ghost" id="btnUndo"><svg class="ic"><use href="#i-undo"/></svg> Deshacer</button>
         </div>
+        <div id="toast" class="toast" hidden></div>
       </div>
 
       <div id="scanner" hidden>
         <div id="reader"></div>
-        <p class="small" id="scanStatus">Apunta al código de barras…</p>
-        <div class="row gap">
-          <button class="btn" id="btnTorch" hidden>🔦 Linterna</button>
-          <button class="btn" id="btnStopScan">Cerrar cámara</button>
+        <div class="scanner-bar">
+          <span class="small" id="scanStatus">Apunta al código de barras…</span>
+          <span class="sp"></span>
+          <button class="btn sm dark" id="btnTorch" hidden><svg class="ic"><use href="#i-flash"/></svg> Linterna</button>
+          <button class="btn sm dark" id="btnStopScan"><svg class="ic"><use href="#i-x"/></svg> Cerrar cámara</button>
         </div>
       </div>
 
-      <div id="toast" class="toast" hidden></div>
-      <ul id="countList" class="items"></ul>
+      <div class="card">
+        <ul id="countList" class="items"></ul>
+      </div>
       <div id="extrasBox"></div>
 
-      <div class="sticky-actions">
-        <button class="btn" id="btnAddExtra">＋ No está en la lista</button>
-        <button class="btn primary big" id="btnFinish">✅ Terminé, ver diferencias</button>
+      <div class="footbar">
+        <button class="btn" id="btnAddExtra"><svg class="ic"><use href="#i-plus"/></svg> No está en la lista</button>
+        <button class="btn primary" id="btnFinish"><svg class="ic"><use href="#i-check"/></svg> Terminar conteo</button>
       </div>
     </section>
 
     <!-- RESULTADOS -->
     <section id="view-results" class="view" hidden>
-      <div id="summary" class="bento"></div>
+      <div id="summary"></div>
       <div class="toolbar">
         <label class="inline small"><input type="checkbox" id="onlyDiffs" checked> Solo con diferencias</label>
-        <div class="row gap">
-          <button class="btn" id="btnExportXlsx">⬇ Excel</button>
-          <button class="btn" id="btnExportCsv">⬇ CSV</button>
-          <button class="btn" id="btnPrint">🖨 Imprimir</button>
-          <button class="btn primary" id="btnShareResults">📤 Compartir</button>
-          <button class="btn" id="btnBackToCount">↩ Volver al conteo</button>
+        <div class="actions">
+          <button class="btn" id="btnBackToCount"><svg class="ic"><use href="#i-arrow-left"/></svg> Volver al conteo</button>
+          <button class="btn" id="btnPrint"><svg class="ic"><use href="#i-printer"/></svg> Imprimir</button>
+          <button class="btn" id="btnExportCsv"><svg class="ic"><use href="#i-file"/></svg> CSV</button>
+          <button class="btn" id="btnExportXlsx"><svg class="ic"><use href="#i-download"/></svg> Excel</button>
+          <button class="btn primary" id="btnShareResults"><svg class="ic"><use href="#i-send"/></svg> Compartir</button>
         </div>
       </div>
       <div id="resultsTable"></div>
@@ -199,7 +249,7 @@
     <form method="dialog" id="dlgForm">
       <h3 id="dlgTitle"></h3>
       <div id="dlgBody"></div>
-      <div class="row gap end" id="dlgActions"></div>
+      <div class="actions end" id="dlgActions"></div>
     </form>
   </dialog>
 

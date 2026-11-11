@@ -10,6 +10,7 @@
   const STORE_KEY = 'revision-pedidos-v1';
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ic = (n) => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const fmtMoney = (n) => (Number(n) || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtDate = (ts) => new Date(ts).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' });
@@ -58,7 +59,7 @@
   const views = ['home', 'load', 'order', 'count', 'results'];
   function show(view, title) {
     views.forEach((v) => { $('#view-' + v).hidden = v !== view; });
-    $('#title').textContent = title || 'Revisión de Pedidos';
+    $('#title').textContent = title || '';
     if (view !== 'count') stopScanner();
     window.scrollTo(0, 0);
   }
@@ -96,65 +97,57 @@
     const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
     if (o.finishedAt) {
       const d = computeResults(o).filter((r) => r.dif !== 0).length;
-      return { counted, key: 'done', tag: d ? `<span class="tag bad">${d} diferencias</span>` : '<span class="tag ok">Sin diferencias</span>', diffs: d };
+      return { counted, key: 'done', tag: d ? `<span class="pill bad">${d} ${d === 1 ? 'diferencia' : 'diferencias'}</span>` : '<span class="pill ok">Correcto</span>', diffs: d };
     }
-    return { counted, key: counted ? 'counting' : 'new', tag: counted ? '<span class="tag warn">En conteo</span>' : '<span class="tag">Sin contar</span>', diffs: 0 };
+    return { counted, key: counted ? 'counting' : 'new', tag: counted ? '<span class="pill warn">En conteo</span>' : '<span class="pill">Sin contar</span>', diffs: 0 };
   }
 
   function renderHome() {
     current = null;
     show('home');
     const st = db.orders.map(orderStatus);
-    const counting = st.filter((x) => x.key !== 'done').length;
+    const open = st.filter((x) => x.key !== 'done').length;
     const done = st.filter((x) => x.key === 'done').length;
     const withDiffs = st.filter((x) => x.diffs > 0).length;
-    $('#statCounting').innerHTML = `<span class="tile-label">Por revisar</span><span class="tile-num">${counting}</span><span class="tile-sub">pedidos abiertos</span>`;
-    $('#statDone').innerHTML = `<span class="tile-label">Terminados</span><span class="tile-num">${done}</span><span class="tile-sub">conteos cerrados</span>`;
-    $('#statDiff').innerHTML = `<span class="tile-label">Con diferencias</span><span class="tile-num">${withDiffs}</span><span class="tile-sub">de ${done} terminados</span>`;
+    $('#homeStats').innerHTML = `
+      <div class="kpi"><div class="l">Pedidos</div><div class="v">${db.orders.length}</div><div class="s">en este equipo</div></div>
+      <div class="kpi"><div class="l">En revisión</div><div class="v">${open}</div><div class="s">abiertos</div></div>
+      <div class="kpi ok"><div class="l">Cerrados</div><div class="v">${done}</div><div class="s">conteos terminados</div></div>
+      <div class="kpi ${withDiffs ? 'bad' : ''}"><div class="l">Con diferencias</div><div class="v">${withDiffs}</div><div class="s">de ${done} cerrados</div></div>`;
 
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = '<div class="card muted center">Todavía no hay pedidos. Carga uno o abre el enlace que te enviaron.</div>';
+      list.innerHTML = `<div class="empty">Todavía no hay pedidos. Usa <b>Nuevo pedido</b> para cargar uno o abre el enlace que te enviaron.</div>`;
       return;
     }
-    list.innerHTML = db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
-      const x = orderStatus(o);
-      const pct = o.items.length ? Math.round((x.counted / o.items.length) * 100) : 0;
-      return `<button class="order-item" data-id="${o.id}">
-        <div class="row gap" style="justify-content:space-between"><span class="name">${esc(o.nombre || 'Pedido')}</span>${x.tag}</div>
-        <div class="small muted">${esc(o.sucursal || 'Sin sucursal')} · ${o.items.length} productos · ${fmtDate(o.creado)}</div>
-        <div class="mini-bar"><span style="width:${o.finishedAt ? 100 : pct}%"></span></div>
-        <div class="small muted">${o.finishedAt ? 'Cerrado ' + fmtDate(o.finishedAt) + (o.contadoPor ? ' · ' + esc(o.contadoPor) : '') : `${x.counted} de ${o.items.length} contados`}</div>
-      </button>`;
-    }).join('');
-    list.querySelectorAll('.order-item').forEach((b) => { b.onclick = () => openOrder(b.dataset.id); });
+    list.innerHTML = `<div class="table-wrap"><table class="orders">
+      <thead><tr><th>Pedido</th><th>Sucursal</th><th>Avance</th><th>Estado</th><th class="num">Fecha</th></tr></thead>
+      <tbody>${db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
+        const x = orderStatus(o);
+        const pct = o.finishedAt ? 100 : (o.items.length ? Math.round((x.counted / o.items.length) * 100) : 0);
+        return `<tr class="click" data-id="${o.id}">
+          <td><b>${esc(o.nombre || 'Pedido')}</b><div class="sub">${o.items.length} productos${o.contadoPor ? ' · contó ' + esc(o.contadoPor) : ''}</div></td>
+          <td class="c-branch">${esc(o.sucursal || '—')}</td>
+          <td class="c-progress"><span class="sub">${o.finishedAt ? 'Cerrado' : `${x.counted} de ${o.items.length}`}</span><div class="mini-bar"><span style="width:${pct}%"></span></div></td>
+          <td class="c-state">${x.tag}</td>
+          <td class="num c-date sub">${fmtDate(o.finishedAt || o.creado)}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+    list.querySelectorAll('tr[data-id]').forEach((r) => { r.onclick = () => openOrder(r.dataset.id); });
   }
 
-  // ---------- Colores ----------
-  const THEMES = [
-    { id: 'menta', name: 'Menta', desc: 'Crema y verde salvia', c: ['#f4f1ea', '#2f6b4f', '#d6e9dc', '#f7dcc4', '#e2dcf7', '#fbedb0'], text: '#1d2621' },
-    { id: 'lavanda', name: 'Lavanda', desc: 'Lila con durazno', c: ['#f4f2fa', '#5a48c8', '#e3dcff', '#ffd8cc', '#cff0e4', '#fff0bf'], text: '#221d38' },
-    { id: 'oceano', name: 'Océano', desc: 'Azul marino y coral', c: ['#edf2f7', '#17467e', '#d3e5fa', '#ffd5cc', '#cfefea', '#fde7b3'], text: '#0f2135' },
-    { id: 'grafito', name: 'Grafito', desc: 'Oscuro con lima', c: ['#0f1012', '#c8f04a', '#1f2d25', '#33261c', '#262338', '#2f2b17'], text: '#edece7' },
-  ];
+  // ---------- Modo claro / oscuro ----------
   function applyTheme(id) {
     document.documentElement.dataset.theme = id;
-    const t = THEMES.find((x) => x.id === id);
-    if (t) document.querySelector('meta[name=theme-color]').content = t.c[0];
+    document.querySelector('meta[name=theme-color]').content = id === 'nocturno' ? '#0b0f14' : '#13233a';
+    $('#btnTheme').innerHTML = ic(id === 'nocturno' ? 'sun' : 'moon');
   }
-  $('#btnTheme').onclick = async () => {
-    const curr = document.documentElement.dataset.theme;
-    const r = await ask({ title: 'Colores',
-      html: '<div class="theme-grid">' + THEMES.map((t) => `<button class="theme-opt ${t.id === curr ? 'on' : ''}" value="${t.id}"
-          style="--sw-bg:${t.c[0]};--sw-text:${t.text}">
-          <div class="sw">${t.c.slice(1).map((c) => `<i style="background:${c}"></i>`).join('')}</div>
-          ${t.name}<small>${t.desc}</small></button>`).join('') + '</div>',
-      buttons: [{ label: 'Cerrar', value: '' }] });
-    if (!r.value) return;
-    applyTheme(r.value);
-    try { localStorage.setItem('revision-tema', r.value); } catch (e) { /* sin almacenamiento */ }
+  $('#btnTheme').onclick = () => {
+    const next = document.documentElement.dataset.theme === 'nocturno' ? 'ejecutivo' : 'nocturno';
+    applyTheme(next);
+    try { localStorage.setItem('revision-tema', next); } catch (e) { /* sin almacenamiento */ }
   };
-  applyTheme(document.documentElement.dataset.theme || 'menta');
+  applyTheme(document.documentElement.dataset.theme === 'nocturno' ? 'nocturno' : 'ejecutivo');
 
   $('#btnNewOrder').onclick = () => startLoad();
   $('#fileOpenOrder').onchange = async (e) => {
@@ -301,7 +294,7 @@
 
   function toastLoad(msg) {
     const p = $('#loadPreview').querySelector('.ok-msg');
-    if (p) p.textContent = '✔ ' + msg;
+    if (p) p.textContent = msg;
   }
 
   function renderPreview() {
@@ -316,7 +309,7 @@
         <tbody>${draft.map((i) => `<tr>
           <td class="mono">${esc(i.codigo)}</td><td>${esc(i.producto)}</td><td class="mono">${esc(i.lote)}</td>
           <td class="num">${fmtMoney(i.precio)}</td><td class="num">${i.cantidad}</td>
-          <td><button class="icon-btn small" data-del="${i.id}" title="Quitar">✕</button></td></tr>`).join('')}
+          <td><button class="icon-btn row-del" data-del="${i.id}" title="Quitar" aria-label="Quitar">${ic('x')}</button></td></tr>`).join('')}
         </tbody></table></div>`;
     el.querySelectorAll('[data-del]').forEach((b) => {
       b.onclick = () => { draft = draft.filter((d) => d.id !== b.dataset.del); renderPreview(); };
@@ -349,8 +342,10 @@
     $('#orderTitle').textContent = current.nombre;
     $('#orderMeta').textContent = `${current.sucursal ? current.sucursal + ' · ' : ''}${current.items.length} productos · creado ${fmtDate(current.creado)}`;
     const x = orderStatus(current);
-    $('#orderProgress').textContent = current.finishedAt ? 'Conteo cerrado · ver diferencias'
-      : x.counted ? `Seguir: ${x.counted} de ${current.items.length} contados` : 'Toca para empezar a contar';
+    $('#orderProgress').textContent = current.finishedAt ? `Cerrado ${fmtDate(current.finishedAt)}${current.contadoPor ? ' · contó ' + current.contadoPor : ''}`
+      : x.counted ? `${x.counted} de ${current.items.length} productos contados` : 'Aún sin contar';
+    $('#orderBar').style.width = (current.finishedAt ? 100 : current.items.length ? (x.counted / current.items.length) * 100 : 0) + '%';
+    $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? ' Revisar conteo' : x.counted ? ' Seguir contando' : ' Contar pedido');
     $('#shareInfo').textContent = '';
   }
 
@@ -420,6 +415,7 @@
       return;
     }
     show('count', current.nombre);
+    $('#countKicker').textContent = [current.sucursal, current.nombre].filter(Boolean).join(' · ');
     $('#search').value = '';
     renderCount();
   }
@@ -449,15 +445,16 @@
     const meta = [
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
-      i.vencimiento && `Vence ${esc(i.vencimiento)}`,
-      i.precio ? `$ ${fmtMoney(i.precio)}` : '',
-    ].filter(Boolean).join(' · ');
+      i.vencimiento && `<span class="opt">Vence ${esc(i.vencimiento)}</span>`,
+      i.precio ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
+    ].filter(Boolean).join('<span class="dot"> · </span>');
     return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
-      <div class="info"><div class="name">${esc(i.producto)}</div><div class="meta small">${meta}</div></div>
+      <span class="st">${ic('check')}</span>
+      <div class="info"><div class="name">${esc(i.producto)}</div><div class="meta">${meta}</div></div>
       <div class="stepper">
-        <button class="step" data-act="dec" aria-label="Restar">−</button>
+        <button class="step" data-act="dec" aria-label="Restar">${ic('minus')}</button>
         <input class="qty" type="number" inputmode="numeric" min="0" value="${n || ''}" placeholder="0" data-act="set" aria-label="Cantidad contada">
-        <button class="step" data-act="inc" aria-label="Sumar">+</button>
+        <button class="step" data-act="inc" aria-label="Sumar">${ic('plus')}</button>
       </div>
     </li>`;
   }
@@ -467,7 +464,7 @@
     const done = current.items.filter((i) => qty(i) > 0).length;
     const units = Object.values(current.counts).reduce((s, n) => s + n, 0) + current.extras.reduce((s, e) => s + e.cantidad, 0);
     $('#progressBar').style.width = (total ? (done / total) * 100 : 0) + '%';
-    $('#progressText').textContent = `${done} de ${total} productos contados · ${units} unidades registradas`;
+    $('#progressText').textContent = `${done} de ${total} productos · ${units} unid.`;
   }
 
   function updateItemRow(item) {
@@ -544,15 +541,16 @@
   function renderExtras() {
     const box = $('#extrasBox');
     if (!current.extras.length) { box.innerHTML = ''; return; }
-    box.innerHTML = `<h3 class="section-title">⚠ Recibidos que no estaban en el pedido</h3>
-      <ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
+    box.innerHTML = `<h3 class="section-title">${ic('alert')} Recibidos que no estaban en el pedido</h3>
+      <div class="card"><ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
+        <span class="st">${ic('alert')}</span>
         <div class="info"><div class="name">${esc(x.producto)}</div>
-          <div class="meta small">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
+          <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
         <div class="stepper">
-          <button class="step" data-xact="dec">−</button>
-          <input class="qty" type="number" min="0" value="${x.cantidad}" data-xact="set">
-          <button class="step" data-xact="inc">+</button>
-        </div></li>`).join('')}</ul>`;
+          <button class="step" data-xact="dec" aria-label="Restar">${ic('minus')}</button>
+          <input class="qty" type="number" min="0" value="${x.cantidad}" data-xact="set" aria-label="Cantidad">
+          <button class="step" data-xact="inc" aria-label="Sumar">${ic('plus')}</button>
+        </div></li>`).join('')}</ul></div>`;
   }
   function changeExtra(xid, fn) {
     const ex = current.extras.find((x) => x.id === xid);
@@ -633,7 +631,7 @@
       if (r.value === 'ok') {
         addExtra({ codigo: gs1 ? gs1.gtin : raw, producto: r.fields.producto.trim() || 'Producto sin nombre (' + raw + ')',
           lote: scannedLote, motivo: 'No estaba en el pedido' }, amount);
-        flash('Registrado como sobrante', 'warn');
+        flash(`${ic('alert')}<span>Registrado como sobrante</span>`, 'warn');
       }
       return;
     }
@@ -646,7 +644,7 @@
         beep(false);
         const expected = matches.map((i) => i.lote || 'sin lote').join(', ');
         addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: scannedLote, motivo: 'Lote distinto al enviado' }, amount);
-        flash(`❌ <b>Lote incorrecto</b><br>${esc(matches[0].producto)}<br>Leído: <b>${esc(scannedLote)}</b> · Pedido: <b>${esc(expected)}</b>`, 'err');
+        flash(`${ic('alert')}<span><b>Lote incorrecto</b> · ${esc(matches[0].producto)}<br>Leído: <b class="mono">${esc(scannedLote)}</b> · En el pedido: <b class="mono">${esc(expected)}</b></span>`, 'err');
         return;
       }
     } else if (matches.length === 1) {
@@ -664,7 +662,7 @@
         else {
           addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: r.fields.otro.trim(), motivo: 'Lote distinto al enviado' }, amount);
           beep(false);
-          flash('❌ Lote no corresponde al pedido. Registrado como diferencia.', 'err');
+          flash(`${ic('alert')}<span>El lote no corresponde al pedido. Quedó registrado como diferencia.</span>`, 'err');
           return;
         }
       } else target = matches.find((i) => i.id === r.value);
@@ -673,8 +671,8 @@
 
     setCount(target, qty(target) + amount);
     beep(true);
-    const loteOk = scannedLote ? ' · lote ✔' : '';
-    flash(`✔ <b>${esc(target.producto)}</b>${target.lote ? ' · L ' + esc(target.lote) : ''}${loteOk}<br>Contados: <b>${qty(target)}</b>`, 'ok');
+    const loteOk = scannedLote ? ' · lote verificado' : '';
+    flash(`${ic('check')}<span>${esc(target.producto)}${target.lote ? ' · ' + esc(target.lote) : ''}${loteOk} — contados <b>${qty(target)}</b></span>`, 'ok');
     // Lleva el producto a la vista
     const li = $(`#countList li[data-id="${target.id}"]`);
     if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
@@ -703,7 +701,7 @@
   async function startScanner() {
     if (!window.Html5Qrcode) return alert('No se pudo cargar el lector. Revisa tu conexión a internet.');
     $('#scanner').hidden = false;
-    $('#btnScan').textContent = '✕ Cerrar';
+    $('#btnScan').innerHTML = ic('x') + ' Cerrar';
     const F = Html5QrcodeSupportedFormats;
     scanner = new Html5Qrcode('reader', {
       verbose: false,
@@ -743,7 +741,7 @@
     scanner = null;
     try { await s.stop(); s.clear(); } catch (e) { /* ya detenido */ }
     $('#scanner').hidden = true;
-    $('#btnScan').textContent = '📷 Escanear';
+    $('#btnScan').innerHTML = ic('scan') + ' Escanear';
     torchOn = false;
   }
 
@@ -802,20 +800,19 @@
     const pct = rows.length ? Math.round((ok / rows.length) * 100) : 0;
     const dur = current.startedAt && current.finishedAt ? fmtDur(current.finishedAt - current.startedAt) : '—';
     $('#summary').innerHTML = `
-      <div class="tile t0 span4">
-        <span class="tile-kicker">${esc(current.sucursal || 'Sucursal')} · ${current.items.length} productos</span>
-        <span class="tile-big">${esc(current.nombre)}</span>
-        <span class="tile-sub">Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened} vez/veces` : ''}</span>
+      <div class="page-head">
+        <div>
+          <span class="kicker">${esc(current.sucursal || 'Sucursal')} · Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
+          <h2 class="page-title">Diferencias · ${esc(current.nombre)}</h2>
+        </div>
       </div>
-      <div class="tile ${diffs.length ? 't1' : 'accent'} span2 tall">
-        <span class="tile-label">Correctos</span>
-        <span class="tile-num" style="font-size:clamp(2.6rem,7vw,4rem)">${pct}%</span>
-        <span class="tile-sub">${ok} de ${rows.length} líneas sin diferencia</span>
-      </div>
-      <div class="tile t2"><span class="tile-label">Faltan</span><span class="tile-num">${uFalt}</span><span class="tile-sub">unidades · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</span></div>
-      <div class="tile t4"><span class="tile-label">Sobran</span><span class="tile-num">${uSobr}</span><span class="tile-sub">unidades · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</span></div>
-      <div class="tile t3"><span class="tile-label">Valor faltante</span><span class="tile-num" style="font-size:clamp(1.5rem,3.6vw,2.1rem)">$ ${fmtMoney(vFalt)}</span><span class="tile-sub">según precio del pedido</span></div>
-      <div class="tile t5"><span class="tile-label">Tiempo de conteo</span><span class="tile-num" style="font-size:clamp(1.5rem,3.6vw,2.1rem)">${dur}</span><span class="tile-sub">primer registro → cierre</span></div>`;
+      <div class="kpis five">
+        <div class="kpi ${diffs.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok} de ${rows.length} líneas correctas</div><div class="meter"><span style="width:${pct}%"></span></div></div>
+        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${uFalt}</div><div class="s">unid. · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</div></div>
+        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${uSobr}</div><div class="s">unid. · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</div></div>
+        <div class="kpi"><div class="l">Valor faltante</div><div class="v">$ ${fmtMoney(vFalt)}</div><div class="s">a precio del pedido</div></div>
+        <div class="kpi"><div class="l">Tiempo de conteo</div><div class="v">${dur}</div><div class="s">primer registro → cierre</div></div>
+      </div>`;
     renderResultsTable(rows);
   }
 
@@ -824,19 +821,18 @@
     const list = (only ? rows.filter((r) => r.dif !== 0) : rows)
       .sort((a, b) => (a.dif === 0) - (b.dif === 0) || a.producto.localeCompare(b.producto, 'es'));
     if (!list.length) {
-      $('#resultsTable').innerHTML = '<div class="card center good-msg">✅ ¡Todo correcto! El pedido llegó completo.</div>';
+      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} Todo correcto: el pedido llegó completo.</div>`;
       return;
     }
-    $('#resultsTable').innerHTML = `<div class="table-wrap card results-card"><table class="results">
-      <thead><tr><th>Producto</th><th>Lote</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
-      <tbody>${list.map((r) => `<tr class="${r.dif < 0 ? 'neg' : r.dif > 0 ? 'pos' : ''}">
-        <td>${esc(r.producto)}<div class="small muted mono">${esc(r.codigo)}</div></td>
-        <td class="mono">${esc(r.lote)}</td>
+    $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
+      <thead><tr><th>Producto</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
+      <tbody>${list.map((r) => `<tr>
+        <td><b>${esc(r.producto)}</b><div class="sub"><span class="mono">${esc(r.codigo)}</span>${r.lote ? ` · Lote <span class="mono">${esc(r.lote)}</span>` : ''}</div></td>
         <td class="num">${r.contado} und</td>
         <td class="num">${r.esperado} und</td>
-        <td class="num"><b>${r.dif > 0 ? '+' : ''}${r.dif}</b></td>
-        <td><span class="tag ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span></td>
-      </tr>`).join('')}</tbody></table></div>`;
+        <td class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif}</td>
+        <td><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span></td>
+      </tr>`).join('')}</tbody></table></div></div>`;
   }
 
   $('#onlyDiffs').onchange = () => renderResultsTable(computeResults(current));

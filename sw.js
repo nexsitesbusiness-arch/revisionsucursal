@@ -1,5 +1,5 @@
 // Modo sin conexión: guarda la app y las librerías para poder contar sin internet.
-const CACHE = 'revision-v2';
+const CACHE = 'revision-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
@@ -32,7 +32,11 @@ self.addEventListener('fetch', (e) => {
       }).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('index.html')))
     );
   } else {
-    // Librerías con versión fija: caché primero.
-    e.respondWith(caches.match(req).then((r) => r || fetch(req)));
+    // Librerías y fuentes: caché primero; lo nuevo se guarda para usarlo sin conexión.
+    e.respondWith(caches.match(req).then((r) => r || fetch(req).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(req, copy));
+      return res;
+    })));
   }
 });
