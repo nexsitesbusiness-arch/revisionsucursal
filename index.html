@@ -117,10 +117,10 @@
             <input type="file" id="fileFoto" accept="image/*" hidden>
           </label>
           <button class="btn" id="btnPaste"><svg class="ic"><use href="#i-clipboard"/></svg> Pegar desde Excel</button>
-          <a class="btn ghost" href="ejemplo-pedido.csv" download><svg class="ic"><use href="#i-download"/></svg> Plantilla de ejemplo</a>
+          <button class="btn" id="btnTemplate" type="button"><svg class="ic"><use href="#i-download"/></svg> Plantilla Excel</button>
         </div>
 
-        <p class="small muted">Formatos: Excel (.xlsx, .xls), CSV, Word (.docx) y PDF. Con fotos, revisa lo leído antes de guardar.</p>
+        <p class="small muted hint">Formatos: Excel (.xlsx, .xls), CSV, Word (.docx) y PDF. Con fotos, revisa lo leído antes de guardar.</p>
         <div id="loadStatus" class="load-status" hidden></div>
 
         <div id="pasteBox" hidden>

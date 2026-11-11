@@ -352,3 +352,5 @@ select { font: inherit; color: var(--text); background: var(--surface); border: 
   .item .stepper { grid-row: 2; grid-column: 4; }
 }
 @media print { .ev-btn { display: none; } .thumb img { width: 90px; height: 90px; } }
+
+.card p.hint { margin: 10px 0 0; }

@@ -326,6 +326,22 @@
     try { await importFile(f, true); } catch (err) { setLoadStatus(esc(err.message), 'err'); }
   };
 
+  // Plantilla en Excel con los encabezados y dos filas de ejemplo.
+  $('#btnTemplate').onclick = () => {
+    const rows = [
+      ['Código', 'Producto', 'Lote', 'Precio', 'Cantidad', 'Vencimiento'],
+      ['7790001000011', 'Paracetamol 500 mg x 20 comp', 'L2405A', 2.5, 30, '2027-05-31'],
+      ['7790001000028', 'Ibuprofeno 400 mg x 10 comp', 'IB7781', 3.1, 24, '2027-02-28'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 9 }, { wch: 10 }, { wch: 13 }];
+    // Código como texto, para que Excel no lo convierta a 7,79E+12.
+    for (let r = 1; r < rows.length; r++) { const cell = ws[XLSX.utils.encode_cell({ r, c: 0 })]; cell.t = 's'; cell.z = '@'; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
+    XLSX.writeFile(wb, 'plantilla-pedido.xlsx');
+  };
+
   $('#btnPaste').onclick = () => { $('#pasteBox').hidden = !$('#pasteBox').hidden; };
   $('#btnPasteApply').onclick = () => {
     try {
