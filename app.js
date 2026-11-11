@@ -117,7 +117,9 @@
 
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = `<div class="empty">Todavía no hay pedidos. Usa <b>Nuevo pedido</b> para cargar uno o abre el enlace que te enviaron.</div>`;
+      list.innerHTML = `<div class="empty">Todavía no hay pedidos. Usa <b>Nuevo pedido</b> para cargar uno o abre el enlace que te enviaron.
+        <div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div></div>`;
+      $('#btnDemo').onclick = () => openOrder(createDemo().id);
       return;
     }
     list.innerHTML = `<div class="table-wrap"><table class="orders">
@@ -136,10 +138,27 @@
     list.querySelectorAll('tr[data-id]').forEach((r) => { r.onclick = () => openOrder(r.dataset.id); });
   }
 
+  // Pedido de ejemplo para probar la app sin preparar archivos.
+  function createDemo() {
+    const items = [
+      ['7790001000011', 'Paracetamol 500 mg x 20 comp', 'L2405A', 2.5, 30, '2027-05-31'],
+      ['7790001000028', 'Ibuprofeno 400 mg x 10 comp', 'IB7781', 3.1, 24, '2027-02-28'],
+      ['7790001000028', 'Ibuprofeno 400 mg x 10 comp', 'IB7790', 3.1, 12, '2027-08-31'],
+      ['7790001000035', 'Amoxicilina 500 mg x 12 caps', 'AMX330', 6.8, 15, '2026-12-31'],
+      ['7790001000042', 'Omeprazol 20 mg x 14 caps', 'OM1120', 4.25, 20, '2027-03-31'],
+      ['7790001000059', 'Alcohol en gel 250 ml', 'AG0915', 1.9, 40, '2028-01-31'],
+    ].map(([codigo, producto, lote, precio, cantidad, vencimiento]) => ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento }));
+    const o = newOrder({ nombre: 'Pedido de ejemplo', sucursal: 'Sucursal Centro', items });
+    db.orders.push(o);
+    save();
+    return o;
+  }
+
   // ---------- Modo claro / oscuro ----------
   function applyTheme(id) {
     document.documentElement.dataset.theme = id;
-    document.querySelector('meta[name=theme-color]').content = id === 'nocturno' ? '#0b0f14' : '#13233a';
+    const meta = document.querySelector('meta[name=theme-color]');
+    if (meta) meta.content = id === 'nocturno' ? '#0b0f14' : '#13233a';
     $('#btnTheme').innerHTML = ic(id === 'nocturno' ? 'sun' : 'moon');
   }
   $('#btnTheme').onclick = () => {
@@ -1131,10 +1150,13 @@
 
   // ---------- Arranque ----------
   window.addEventListener('hashchange', checkHash);
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  if (!window.REVISION_DEMO && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
   }
-  if (!checkHash()) renderHome();
+  if (!checkHash()) {
+    if (window.REVISION_DEMO && !db.orders.length) createDemo();
+    renderHome();
+  }
 
   // Exponer funciones para pruebas
   window.__app = { parseDelimited, rowsToItems, normCode, parseNum, computeResults, processCode: (c) => handleCode(c) };
