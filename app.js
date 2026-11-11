@@ -166,6 +166,7 @@
     draft = [];
     $('#orderName').value = '';
     $('#orderBranch').value = '';
+    setLoadStatus('');
     renderPreview();
     show('load', 'Cargar pedido');
   }
@@ -244,30 +245,85 @@
     // Une filas repetidas (mismo código + lote + producto) sumando cantidades.
     for (const it of items) {
       const key = normCode(it.codigo) + '|' + normLote(it.lote) + '|' + normText(it.producto);
-      const ex = draft.find((d) => normCode(d.codigo) + '|' + normLote(d.lote) + '|' + normText(d.producto) === key);
+      const ex = !it.revisar && draft.find((d) => !d.revisar && normCode(d.codigo) + '|' + normLote(d.lote) + '|' + normText(d.producto) === key);
       if (ex) ex.cantidad += it.cantidad;
       else draft.push({ id: uid(), ...it });
     }
     renderPreview();
   }
 
+  const isHeaderRow = (texts) => { const m = mapHeaders(texts); return m.producto !== undefined && m.cantidad !== undefined; };
+  function bestFromTables(tables) {
+    let best = [];
+    for (const t of tables) { try { const it = rowsToItems(t); if (it.length > best.length) best = it; } catch (e) { /* tabla sin encabezados */ } }
+    return best;
+  }
+  // Filas con posición (PDF o foto): primero intenta por encabezados; si no, lee línea por línea.
+  function fromCellLines(cellLines) {
+    const rows = Importar.alignToHeader(cellLines, isHeaderRow);
+    let items = [];
+    if (rows) { try { items = rowsToItems(rows); } catch (e) { /* sigue con lectura libre */ } }
+    if (items.length) return { items, exact: true };
+    return { items: Importar.looseItems(cellLines.map((cs) => cs.map((c) => c.t).join(' '))), exact: false };
+  }
+
+  function setLoadStatus(msg, kind = 'info') {
+    const el = $('#loadStatus');
+    el.className = 'load-status ' + kind;
+    el.innerHTML = msg ? (kind === 'busy' ? '<span class="spinner"></span>' : ic(kind === 'ok' ? 'check' : kind === 'err' ? 'alert' : kind === 'warn' ? 'alert' : 'file')) + `<span>${msg}</span>` : '';
+    el.hidden = !msg;
+  }
+
+  async function importFile(f, isPhoto = false) {
+    const name = f.name.toLowerCase();
+    let items = [], exact = true;
+    setLoadStatus(`Leyendo ${esc(f.name)}…`, 'busy');
+    if (/\.(csv|txt)$/.test(name)) {
+      items = rowsToItems(parseDelimited(await f.text()));
+    } else if (/\.(xlsx|xls)$/.test(name)) {
+      const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+      items = rowsToItems(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' }));
+    } else if (/\.docx?$/.test(name)) {
+      const w = await Importar.fromWord(f);
+      items = bestFromTables(w.tables);
+      if (!items.length) { items = Importar.looseItems(w.lines); exact = false; }
+    } else if (/\.pdf$/.test(name)) {
+      ({ items, exact } = fromCellLines(await Importar.fromPdf(f)));
+    } else if (isPhoto || (f.type || '').startsWith('image/')) {
+      setLoadStatus('Preparando el lector de fotos (la primera vez tarda un poco)…', 'busy');
+      const lines = await Importar.fromImage(f, (p) => setLoadStatus(`Leyendo la foto… ${p}%`, 'busy'));
+      ({ items } = fromCellLines(lines));
+      exact = false;
+    } else {
+      throw new Error('Formato no reconocido. Usa Excel, CSV, Word (.docx), PDF o una foto.');
+    }
+    if (!items.length) throw new Error('No encontré productos. Revisa que el documento tenga una tabla con columnas Producto y Cantidad, o agrégalos a mano.');
+    if (!exact) items.forEach((i) => {
+      i.revisar = true;
+      // Limpia lo típico de una lectura automática: códigos partidos o metidos en el nombre.
+      if (/^[\d\s.,]{8,}$/.test(i.codigo)) i.codigo = i.codigo.replace(/\D/g, '');
+      const m = !i.codigo && i.producto.match(/^\|?\s*(\d[\d\s]{7,17}\d)[\s,.;:|]+(.+)$/);
+      if (m) { i.codigo = m[1].replace(/\s/g, ''); i.producto = m[2]; }
+      i.producto = i.producto.replace(/^[\s|,.;:\-]+|[\s|,.;:\-]+$/g, '');
+      i.lote = String(i.lote || '').replace(/[|,;]/g, '').trim();
+    });
+    addToDraft(items);
+    if (!$('#orderName').value && !isPhoto) $('#orderName').value = f.name.replace(/\.[^.]+$/, '');
+    setLoadStatus(exact ? `${items.length} productos cargados de ${esc(f.name)}.`
+      : `${items.length} productos leídos de ${isPhoto ? 'la foto' : esc(f.name)}. Revisa las filas marcadas en amarillo y corrige lo que haga falta antes de guardar.`, exact ? 'ok' : 'warn');
+  }
+
   $('#fileExcel').onchange = async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    try {
-      let rows;
-      if (/\.(csv|txt)$/i.test(f.name)) {
-        rows = parseDelimited(await f.text());
-      } else {
-        const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
-      }
-      const items = rowsToItems(rows);
-      addToDraft(items);
-      if (!$('#orderName').value) $('#orderName').value = f.name.replace(/\.[^.]+$/, '');
-      toastLoad(`${items.length} productos cargados`);
-    } catch (err) { alert(err.message); }
+    try { await importFile(f); } catch (err) { setLoadStatus(esc(err.message), 'err'); }
+  };
+  $('#fileFoto').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { await importFile(f, true); } catch (err) { setLoadStatus(esc(err.message), 'err'); }
   };
 
   $('#btnPaste').onclick = () => { $('#pasteBox').hidden = !$('#pasteBox').hidden; };
@@ -277,8 +333,8 @@
       addToDraft(items);
       $('#pasteArea').value = '';
       $('#pasteBox').hidden = true;
-      toastLoad(`${items.length} productos agregados`);
-    } catch (err) { alert(err.message); }
+      setLoadStatus(`${items.length} productos agregados.`, 'ok');
+    } catch (err) { setLoadStatus(esc(err.message), 'err'); }
   };
 
   $('#manualForm').onsubmit = (e) => {
@@ -292,36 +348,46 @@
     e.target.querySelector('[name=codigo]').focus();
   };
 
-  function toastLoad(msg) {
-    const p = $('#loadPreview').querySelector('.ok-msg');
-    if (p) p.textContent = msg;
-  }
-
   function renderPreview() {
     const el = $('#loadPreview');
     if (!draft.length) { el.innerHTML = '<p class="muted center">Aún no hay productos.</p>'; return; }
     const total = draft.reduce((s, i) => s + i.cantidad * i.precio, 0);
     const units = draft.reduce((s, i) => s + i.cantidad, 0);
-    el.innerHTML = `<p class="ok-msg small"></p>
-      <p><b>${draft.length}</b> productos · <b>${units}</b> unidades · Total $ ${fmtMoney(total)}</p>
-      <div class="table-wrap"><table>
+    const toCheck = draft.filter((i) => i.revisar).length;
+    const inp = (i, f, cls = '', mode = 'text') => `<input class="cell-in ${cls}" data-id="${i.id}" data-f="${f}" inputmode="${mode}" value="${esc(f === 'precio' ? (i.precio ? fmtMoney(i.precio) : '') : i[f])}" aria-label="${f}">`;
+    el.innerHTML = `
+      <div class="row-between"><p><b>${draft.length}</b> productos · <b>${units}</b> unidades · Total $ ${fmtMoney(total)}</p>
+        ${toCheck ? `<span class="pill warn">${toCheck} por revisar</span>` : ''}</div>
+      <p class="small muted">Puedes corregir cualquier dato tocándolo.</p>
+      <div class="table-wrap"><table class="preview">
         <thead><tr><th>Código</th><th>Producto</th><th>Lote</th><th class="num">Precio</th><th class="num">Cant.</th><th></th></tr></thead>
-        <tbody>${draft.map((i) => `<tr>
-          <td class="mono">${esc(i.codigo)}</td><td>${esc(i.producto)}</td><td class="mono">${esc(i.lote)}</td>
-          <td class="num">${fmtMoney(i.precio)}</td><td class="num">${i.cantidad}</td>
+        <tbody>${draft.map((i) => `<tr class="${i.revisar ? 'revisar' : ''}">
+          <td>${inp(i, 'codigo', 'mono', 'numeric')}</td><td>${inp(i, 'producto', 'wide')}</td><td>${inp(i, 'lote', 'mono')}</td>
+          <td>${inp(i, 'precio', 'num', 'decimal')}</td><td>${inp(i, 'cantidad', 'num', 'numeric')}</td>
           <td><button class="icon-btn row-del" data-del="${i.id}" title="Quitar" aria-label="Quitar">${ic('x')}</button></td></tr>`).join('')}
         </tbody></table></div>`;
     el.querySelectorAll('[data-del]').forEach((b) => {
       b.onclick = () => { draft = draft.filter((d) => d.id !== b.dataset.del); renderPreview(); };
     });
   }
+  $('#loadPreview').addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t.classList.contains('cell-in')) return;
+    const it = draft.find((d) => d.id === t.dataset.id);
+    if (!it) return;
+    const f = t.dataset.f;
+    it[f] = (f === 'precio' || f === 'cantidad') ? parseNum(t.value) : t.value.trim();
+    delete it.revisar;
+    renderPreview();
+  });
 
   $('#btnSaveOrder').onclick = () => {
-    if (!draft.length) return alert('Agrega al menos un producto.');
+    if (!draft.length) return setLoadStatus('Agrega al menos un producto antes de guardar.', 'err');
+    if (draft.some((i) => !i.producto || !(i.cantidad > 0))) return setLoadStatus('Hay productos sin nombre o sin cantidad. Corrígelos o quítalos antes de guardar.', 'err');
     const o = newOrder({
       nombre: $('#orderName').value.trim() || 'Pedido ' + new Date().toLocaleDateString('es'),
       sucursal: $('#orderBranch').value.trim(),
-      items: draft,
+      items: draft.map(({ revisar, ...i }) => i),
     });
     db.orders.push(o);
     save();
@@ -329,7 +395,7 @@
   };
 
   function newOrder({ id, nombre, sucursal, creado, items, origen = 'central' }) {
-    return { id: id || uid(), nombre, sucursal, creado: creado || Date.now(), origen, items, counts: {}, extras: [], log: [], finishedAt: null, reopened: 0 };
+    return { id: id || uid(), nombre, sucursal, creado: creado || Date.now(), origen, items, counts: {}, extras: [], evid: {}, log: [], finishedAt: null, reopened: 0 };
   }
 
   // =========================================================
@@ -386,6 +452,7 @@
     const r = await ask({ title: '¿Eliminar este pedido?', html: '<p>Se borrará también el conteo.</p>',
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
+    Object.values(current.evid || {}).forEach((ev) => ev.fotos.forEach((fid) => Fotos.del(fid)));
     db.orders = db.orders.filter((o) => o.id !== current.id);
     save();
     renderHome();
@@ -399,6 +466,122 @@
     history.replaceState(null, '', location.pathname + location.search);
     try { importPayload(m[1]); return true; }
     catch (e) { alert('El enlace del pedido está incompleto o dañado.'); return false; }
+  }
+
+  // =========================================================
+  // EVIDENCIA: motivo, nota y fotos por producto
+  // Las fotos se guardan en IndexedDB (más espacio que localStorage).
+  // =========================================================
+  const Fotos = (() => {
+    let dbp;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('revision-fotos', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('fotos');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const run = async (mode, fn) => {
+      const d = await open();
+      return new Promise((res, rej) => {
+        const t = d.transaction('fotos', mode);
+        const req = fn(t.objectStore('fotos'));
+        t.oncomplete = () => res(req && req.result);
+        t.onerror = () => rej(t.error);
+      });
+    };
+    return {
+      put: (id, blob) => run('readwrite', (st) => st.put(blob, id)),
+      get: (id) => run('readonly', (st) => st.get(id)),
+      del: (id) => run('readwrite', (st) => st.delete(id)).catch(() => {}),
+    };
+  })();
+  const photoUrls = new Map();
+  async function photoUrl(id) {
+    if (!photoUrls.has(id)) {
+      const blob = await Fotos.get(id);
+      photoUrls.set(id, blob ? URL.createObjectURL(blob) : '');
+    }
+    return photoUrls.get(id);
+  }
+  function fillPhotos(root) {
+    root.querySelectorAll('img[data-photo]:not([src])').forEach(async (img) => {
+      const u = await photoUrl(img.dataset.photo);
+      if (u) img.src = u; else img.closest('.thumb')?.remove();
+    });
+  }
+  // Achica la foto (máx. 1280 px, JPEG) para que no ocupe tanto.
+  async function compressImage(file) {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k);
+    c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.72));
+  }
+  const evOf = (o, id) => (o.evid || {})[id];
+  const MOTIVOS = ['Dañado', 'Vencido o por vencer', 'Lote distinto', 'No llegó', 'Llegó de más', 'Mal etiquetado', 'Otro'];
+
+  async function openEvidence(id, titulo, onDone) {
+    current.evid = current.evid || {};
+    const ev = current.evid[id] || { motivo: '', nota: '', fotos: [] };
+    let fotos = [...ev.fotos];
+    const nuevas = [];
+    const p = ask({ title: titulo,
+      html: `<p class="small muted">Deja registro de lo que viste: motivo, una nota y fotos.</p>
+        <label>Motivo<select name="motivo"><option value="">Sin motivo</option>${MOTIVOS.map((m) => `<option ${m === ev.motivo ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+        <label>Nota<textarea name="nota" rows="2" placeholder="Ej: caja aplastada, 3 unidades rotas">${esc(ev.nota)}</textarea></label>
+        <div class="thumbs edit" id="evPhotos"></div>
+        <div class="actions">
+          <label class="btn sm">${ic('camera')} Tomar foto<input type="file" accept="image/*" capture="environment" hidden id="evCam"></label>
+          <label class="btn sm">${ic('upload')} Subir de la galería<input type="file" accept="image/*" multiple hidden id="evGal"></label>
+        </div>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
+    const box = $('#evPhotos');
+    const draw = () => {
+      box.innerHTML = fotos.length ? fotos.map((fid) => `<span class="thumb"><img data-photo="${fid}" alt="Foto de evidencia">
+        <button type="button" class="thumb-del" data-fdel="${fid}" aria-label="Quitar foto">${ic('x')}</button></span>`).join('')
+        : '<span class="muted small">Sin fotos todavía.</span>';
+      fillPhotos(box);
+    };
+    box.onclick = (e) => {
+      const b = e.target.closest('[data-fdel]');
+      if (b) { fotos = fotos.filter((x) => x !== b.dataset.fdel); draw(); }
+    };
+    const add = async (e) => {
+      for (const f of e.target.files) {
+        try {
+          const fid = uid();
+          await Fotos.put(fid, await compressImage(f));
+          nuevas.push(fid);
+          fotos.push(fid);
+        } catch (err) { flash(`${ic('alert')}<span>No se pudo guardar la foto.</span>`, 'err'); }
+      }
+      e.target.value = '';
+      draw();
+    };
+    $('#evCam').onchange = add;
+    $('#evGal').onchange = add;
+    draw();
+    const r = await p;
+    if (r.value !== 'ok') { nuevas.forEach((fid) => Fotos.del(fid)); return; }
+    ev.fotos.filter((fid) => !fotos.includes(fid)).forEach((fid) => Fotos.del(fid));
+    const next = { motivo: r.fields.motivo || '', nota: (r.fields.nota || '').trim(), fotos };
+    if (!next.motivo && !next.nota && !fotos.length) delete current.evid[id];
+    else current.evid[id] = next;
+    save();
+    if (onDone) onDone();
+  }
+
+  function evButton(o, id, act) {
+    const ev = evOf(o, id);
+    const n = ev ? ev.fotos.length : 0;
+    return `<button class="ev-btn ${ev ? 'on' : ''}" ${act}="evid" title="Foto o nota" aria-label="Agregar foto o nota">${ic('camera')}${n ? `<span>${n}</span>` : ''}</button>`;
+  }
+
+  async function viewPhoto(id) {
+    const u = await photoUrl(id);
+    if (u) ask({ title: 'Foto de evidencia', html: `<img class="ev-big" src="${u}" alt="Foto de evidencia">`, buttons: [{ label: 'Cerrar', value: '' }] });
   }
 
   // =========================================================
@@ -451,6 +634,7 @@
     return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
       <span class="st">${ic('check')}</span>
       <div class="info"><div class="name">${esc(i.producto)}</div><div class="meta">${meta}</div></div>
+      ${evButton(current, i.id, 'data-act')}
       <div class="stepper">
         <button class="step" data-act="dec" aria-label="Restar">${ic('minus')}</button>
         <input class="qty" type="number" inputmode="numeric" min="0" value="${n || ''}" placeholder="0" data-act="set" aria-label="Cantidad contada">
@@ -497,6 +681,7 @@
     if (!btn || btn.tagName === 'INPUT') return;
     const item = current.items.find((i) => i.id === btn.closest('li').dataset.id);
     if (!item) return;
+    if (btn.dataset.act === 'evid') return openEvidence(item.id, item.producto + (item.lote ? ' · ' + item.lote : ''), renderCount);
     setCount(item, qty(item) + (btn.dataset.act === 'inc' ? 1 : -1));
   });
   $('#countList').addEventListener('change', (e) => {
@@ -546,6 +731,7 @@
         <span class="st">${ic('alert')}</span>
         <div class="info"><div class="name">${esc(x.producto)}</div>
           <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
+        ${evButton(current, x.id, 'data-xact')}
         <div class="stepper">
           <button class="step" data-xact="dec" aria-label="Restar">${ic('minus')}</button>
           <input class="qty" type="number" min="0" value="${x.cantidad}" data-xact="set" aria-label="Cantidad">
@@ -563,6 +749,10 @@
   $('#extrasBox').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-xact]');
     if (!b) return;
+    if (b.dataset.xact === 'evid') {
+      const x = current.extras.find((y) => y.id === b.closest('li').dataset.xid);
+      return x && openEvidence(x.id, x.producto + (x.lote ? ' · ' + x.lote : ''), renderExtras);
+    }
     changeExtra(b.closest('li').dataset.xid, (n) => n + (b.dataset.xact === 'inc' ? 1 : -1));
   });
   $('#extrasBox').addEventListener('change', (e) => {
@@ -779,10 +969,10 @@
       let estado = 'OK';
       if (dif < 0) estado = contado === 0 ? 'No llegó' : 'Faltante';
       else if (dif > 0) estado = 'Sobrante';
-      return { codigo: i.codigo, producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
+      return { id: i.id, codigo: i.codigo, producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
     });
     for (const x of o.extras) {
-      rows.push({ codigo: x.codigo, producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
+      rows.push({ id: x.id, codigo: x.codigo, producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
         estado: x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : 'No estaba en pedido' });
     }
     return rows;
@@ -818,7 +1008,7 @@
 
   function renderResultsTable(rows) {
     const only = $('#onlyDiffs').checked;
-    const list = (only ? rows.filter((r) => r.dif !== 0) : rows)
+    const list = (only ? rows.filter((r) => r.dif !== 0 || evOf(current, r.id)) : rows)
       .sort((a, b) => (a.dif === 0) - (b.dif === 0) || a.producto.localeCompare(b.producto, 'es'));
     if (!list.length) {
       $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} Todo correcto: el pedido llegó completo.</div>`;
@@ -826,14 +1016,30 @@
     }
     $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
       <thead><tr><th>Producto</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
-      <tbody>${list.map((r) => `<tr>
-        <td><b>${esc(r.producto)}</b><div class="sub"><span class="mono">${esc(r.codigo)}</span>${r.lote ? ` · Lote <span class="mono">${esc(r.lote)}</span>` : ''}</div></td>
+      <tbody>${list.map((r) => `<tr data-rid="${r.id}">
+        <td><b>${esc(r.producto)}</b><div class="sub"><span class="mono">${esc(r.codigo)}</span>${r.lote ? ` · Lote <span class="mono">${esc(r.lote)}</span>` : ''}</div>${evHtml(r.id)}</td>
         <td class="num">${r.contado} und</td>
         <td class="num">${r.esperado} und</td>
         <td class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif}</td>
-        <td><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span></td>
+        <td><div class="state-cell"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${evButton(current, r.id, 'data-rev')}</div></td>
       </tr>`).join('')}</tbody></table></div></div>`;
+    fillPhotos($('#resultsTable'));
   }
+
+  function evHtml(id) {
+    const ev = evOf(current, id);
+    if (!ev) return '';
+    return `<div class="ev-line">${ev.motivo ? `<b>${esc(ev.motivo)}</b>` : ''}${ev.motivo && ev.nota ? ' · ' : ''}${esc(ev.nota)}</div>
+      ${ev.fotos.length ? `<div class="thumbs">${ev.fotos.map((fid) => `<span class="thumb"><img data-photo="${fid}" data-view="${fid}" alt="Foto de evidencia"></span>`).join('')}</div>` : ''}`;
+  }
+  $('#resultsTable').addEventListener('click', (e) => {
+    const v = e.target.closest('[data-view]');
+    if (v) return viewPhoto(v.dataset.view);
+    const b = e.target.closest('[data-rev]');
+    if (!b) return;
+    const r = computeResults(current).find((x) => x.id === b.closest('tr').dataset.rid);
+    if (r) openEvidence(r.id, r.producto + (r.lote ? ' · ' + r.lote : ''), () => renderResultsTable(computeResults(current)));
+  });
 
   $('#onlyDiffs').onchange = () => renderResultsTable(computeResults(current));
   $('#btnBackToCount').onclick = () => startCount();
@@ -843,6 +1049,7 @@
     return computeResults(current).map((r) => ({
       'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote, 'Precio': r.precio,
       'Llegó': r.contado, 'Debería ser': r.esperado, 'Diferencia': r.dif, 'Valor diferencia': +(r.dif * r.precio).toFixed(2), 'Estado': r.estado,
+      'Motivo': evOf(current, r.id)?.motivo || '', 'Nota': evOf(current, r.id)?.nota || '', 'Fotos': evOf(current, r.id)?.fotos.length || 0,
     }));
   }
   $('#btnExportXlsx').onclick = () => {
@@ -863,13 +1070,36 @@
     download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), safeName(current.nombre) + '-diferencias.csv');
   };
   $('#btnShareResults').onclick = async () => {
-    const diffs = computeResults(current).filter((r) => r.dif !== 0);
-    const lines = diffs.map((r) => `• ${r.producto}${r.lote ? ' (L ' + r.lote + ')' : ''}: llegó ${r.contado} und | debería ser ${r.esperado} und → ${r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif}${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}`);
+    const rows = computeResults(current).filter((r) => r.dif !== 0 || evOf(current, r.id));
+    const lines = rows.map((r) => {
+      const ev = evOf(current, r.id);
+      const dif = r.dif === 0 ? 'correcto' : r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif;
+      return `• ${r.producto}${r.lote ? ' (L ' + r.lote + ')' : ''}: llegó ${r.contado} und | debería ser ${r.esperado} und → ${dif}` +
+        `${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}${ev && ev.motivo ? ' — ' + ev.motivo : ''}${ev && ev.nota ? ': ' + ev.nota : ''}`;
+    });
+    const nFotos = rows.reduce((s, r) => s + (evOf(current, r.id)?.fotos.length || 0), 0);
     const text = `Revisión ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
       (current.contadoPor ? `Contó: ${current.contadoPor}\n` : '') +
-      (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : '✅ Todo correcto, sin diferencias.');
-    if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
-    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+      (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : 'Todo correcto, sin diferencias.');
+    // Adjunta las fotos cuando el equipo lo permite (WhatsApp, correo, etc.).
+    const files = [];
+    for (const r of rows) {
+      const ev = evOf(current, r.id);
+      if (!ev) continue;
+      let k = 1;
+      for (const fid of ev.fotos) {
+        const blob = await Fotos.get(fid);
+        if (blob) files.push(new File([blob], `${safeName(r.producto)}-${safeName(r.lote || 'sl')}-${k++}.jpg`, { type: 'image/jpeg' }));
+      }
+    }
+    if (navigator.share) {
+      try {
+        if (files.length && navigator.canShare && navigator.canShare({ files })) await navigator.share({ text, files });
+        else await navigator.share({ text });
+        return;
+      } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    window.open('https://wa.me/?text=' + encodeURIComponent(text + (nFotos ? `\n(${nFotos} fotos guardadas en la tablet)` : '')), '_blank');
   };
 
   // ---------- Utilidades ----------

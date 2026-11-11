@@ -1,7 +1,7 @@
 // Modo sin conexión: guarda la app y las librerías para poder contar sin internet.
-const CACHE = 'revision-v3';
+const CACHE = 'revision-v4';
 const SHELL = [
-  './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
+  './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'importar.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js',

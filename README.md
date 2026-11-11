@@ -4,7 +4,10 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
 ## Cómo funciona
 
-1. **Central – cargar el pedido.** Sube el Excel/CSV (o pega desde Excel) con: código de barras, producto, lote, precio, cantidad y, opcional, vencimiento. Hay una plantilla en `ejemplo-pedido.csv`.
+1. **Central – cargar el pedido.** Sube el pedido en **Excel, CSV, Word (.docx) o PDF**, pega las filas desde Excel o saca una **foto de la hoja**. Columnas: código de barras, producto, lote, precio, cantidad y, opcional, vencimiento. Hay ejemplos en `ejemplo-pedido.csv`, `ejemplo-pedido.docx` y `ejemplo-pedido.pdf`.
+   - Word y PDF: se lee la tabla del documento. Si el Word no tiene tabla, se lee línea por línea y se marca para revisar.
+   - Foto: la app endereza la imagen, borra las líneas de la tabla y lee el texto. Todo lo leído queda **en amarillo para revisar** y cada dato se puede corregir antes de guardar.
+   - La sucursal abre lo recibido con **Abrir pedido recibido** (archivo .pedido) o con el enlace.
 2. **Enviar a la sucursal.** Botón *Compartir enlace* (WhatsApp, correo) o *Descargar archivo*. El pedido viaja comprimido: la sucursal **no ve las cantidades enviadas**.
 3. **Sucursal – contar.** Abre el enlace y cuenta lo que trae la cubeta:
    - Buscador por nombre, código o lote.
@@ -14,6 +17,7 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
    - Productos que llegaron pero no estaban en el pedido se registran como sobrantes.
    - También sirve un lector de código de barras USB/Bluetooth: se escanea en el buscador.
    - El avance se guarda en el celular; se puede cerrar y seguir después.
+   - **Evidencia:** el botón de cámara de cada producto permite indicar un motivo (dañado, vencido, lote distinto…), escribir una nota y sacar o subir fotos.
 4. **Terminé, ver diferencias.** Recién ahí se muestra lo contado vs. lo que debería ser:
 
    | Producto | Lote | Llegó | Debería ser | Dif. |
@@ -21,6 +25,16 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
    | Paracetamol 500 mg | L2405A | 20 und | 30 und | −10 |
 
    Se puede exportar a Excel/CSV, imprimir o compartir el resumen por WhatsApp. Si se reabre el conteo, queda registrado.
+
+## Evidencia con fotos
+
+<img src="docs/capturas/evidencia-dialogo.png" width="420"> <img src="docs/capturas/evidencia-diferencias.png" width="420">
+
+El motivo, la nota y las fotos salen en el reporte de diferencias, en el Excel (columnas Motivo, Nota y Fotos) y al **Compartir** se adjuntan las fotos cuando el equipo lo permite (WhatsApp, correo). Al **Imprimir** el reporte las fotos también aparecen. Las fotos se guardan en el dispositivo y se achican para ocupar poco espacio.
+
+## Carga desde una foto
+
+<img src="docs/capturas/carga-foto.png" width="520">
 
 ## Diseño
 
@@ -102,3 +116,6 @@ Para probar en la computadora: `python3 -m http.server` y abrir `http://localhos
 
 - Los datos se guardan en cada dispositivo (no hay base de datos central). La central recibe el resultado por Excel o WhatsApp.
 - Los códigos EAN-13 normales no traen lote; para verificar lote automáticamente hace falta el DataMatrix/GS1 de la caja.
+- Leer Word, PDF y fotos requiere internet la primera vez (se descarga el lector). Las fotos de hojas se leen bien si están derechas, enfocadas y con buena luz; siempre conviene revisar.
+- Word antiguo (.doc) no se lee: hay que guardarlo como .docx.
+- Las fotos de evidencia quedan en el equipo donde se tomaron; la central las recibe al compartir el reporte.

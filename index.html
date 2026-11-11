@@ -73,7 +73,7 @@
         </div>
         <div class="actions">
           <label class="btn">
-            <svg class="ic"><use href="#i-folder"/></svg> Abrir archivo
+            <svg class="ic"><use href="#i-folder"/></svg> Abrir pedido recibido
             <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
           </label>
           <button class="btn primary" id="btnNewOrder"><svg class="ic"><use href="#i-plus"/></svg> Nuevo pedido</button>
@@ -106,15 +106,22 @@
 
       <div class="card pad">
         <h3 class="card-title">Productos</h3>
-        <p class="muted">Sube el Excel o CSV del pedido. Columnas que se reconocen: <b>código</b> de barras, <b>producto</b>, <b>lote</b>, <b>precio</b>, <b>cantidad</b> y, si quieres, <b>vencimiento</b>.</p>
+        <p class="muted">Sube el pedido en <b>Excel, CSV, Word o PDF</b>, o saca una <b>foto de la hoja</b>. Columnas que se reconocen: <b>código</b> de barras, <b>producto</b>, <b>lote</b>, <b>precio</b>, <b>cantidad</b> y, si quieres, <b>vencimiento</b>.</p>
         <div class="actions">
           <label class="btn primary">
-            <svg class="ic"><use href="#i-upload"/></svg> Subir Excel o CSV
-            <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv,.txt" hidden>
+            <svg class="ic"><use href="#i-upload"/></svg> Subir archivo
+            <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv,.txt,.docx,.doc,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+          </label>
+          <label class="btn">
+            <svg class="ic"><use href="#i-camera"/></svg> Foto de la hoja
+            <input type="file" id="fileFoto" accept="image/*" hidden>
           </label>
           <button class="btn" id="btnPaste"><svg class="ic"><use href="#i-clipboard"/></svg> Pegar desde Excel</button>
           <a class="btn ghost" href="ejemplo-pedido.csv" download><svg class="ic"><use href="#i-download"/></svg> Plantilla de ejemplo</a>
         </div>
+
+        <p class="small muted">Formatos: Excel (.xlsx, .xls), CSV, Word (.docx) y PDF. Con fotos, revisa lo leído antes de guardar.</p>
+        <div id="loadStatus" class="load-status" hidden></div>
 
         <div id="pasteBox" hidden>
           <textarea id="pasteArea" rows="6" placeholder="Copia las filas en Excel (con encabezados) y pégalas aquí"></textarea>
@@ -257,6 +264,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="gs1.js"></script>
+  <script src="importar.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
