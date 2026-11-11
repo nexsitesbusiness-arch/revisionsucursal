@@ -92,26 +92,69 @@
   // =========================================================
   // INICIO
   // =========================================================
+  function orderStatus(o) {
+    const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
+    if (o.finishedAt) {
+      const d = computeResults(o).filter((r) => r.dif !== 0).length;
+      return { counted, key: 'done', tag: d ? `<span class="tag bad">${d} diferencias</span>` : '<span class="tag ok">Sin diferencias</span>', diffs: d };
+    }
+    return { counted, key: counted ? 'counting' : 'new', tag: counted ? '<span class="tag warn">En conteo</span>' : '<span class="tag">Sin contar</span>', diffs: 0 };
+  }
+
   function renderHome() {
     current = null;
     show('home');
+    const st = db.orders.map(orderStatus);
+    const counting = st.filter((x) => x.key !== 'done').length;
+    const done = st.filter((x) => x.key === 'done').length;
+    const withDiffs = st.filter((x) => x.diffs > 0).length;
+    $('#statCounting').innerHTML = `<span class="tile-label">Por revisar</span><span class="tile-num">${counting}</span><span class="tile-sub">pedidos abiertos</span>`;
+    $('#statDone').innerHTML = `<span class="tile-label">Terminados</span><span class="tile-num">${done}</span><span class="tile-sub">conteos cerrados</span>`;
+    $('#statDiff').innerHTML = `<span class="tile-label">Con diferencias</span><span class="tile-num">${withDiffs}</span><span class="tile-sub">de ${done} terminados</span>`;
+
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = '<div class="card muted center">Todavía no hay pedidos.</div>';
+      list.innerHTML = '<div class="card muted center">Todavía no hay pedidos. Carga uno o abre el enlace que te enviaron.</div>';
       return;
     }
     list.innerHTML = db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
-      const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
-      const state = o.finishedAt ? '<span class="tag ok">Terminado</span>'
-        : counted ? '<span class="tag warn">En conteo</span>' : '<span class="tag">Sin contar</span>';
-      return `<button class="card order-item" data-id="${o.id}">
-        <div><b>${esc(o.nombre || 'Pedido')}</b> ${state}</div>
-        <div class="small muted">${esc(o.sucursal || '')} · ${o.items.length} productos · ${fmtDate(o.creado)}</div>
-        <div class="small muted">${counted} de ${o.items.length} contados</div>
+      const x = orderStatus(o);
+      const pct = o.items.length ? Math.round((x.counted / o.items.length) * 100) : 0;
+      return `<button class="order-item" data-id="${o.id}">
+        <div class="row gap" style="justify-content:space-between"><span class="name">${esc(o.nombre || 'Pedido')}</span>${x.tag}</div>
+        <div class="small muted">${esc(o.sucursal || 'Sin sucursal')} · ${o.items.length} productos · ${fmtDate(o.creado)}</div>
+        <div class="mini-bar"><span style="width:${o.finishedAt ? 100 : pct}%"></span></div>
+        <div class="small muted">${o.finishedAt ? 'Cerrado ' + fmtDate(o.finishedAt) + (o.contadoPor ? ' · ' + esc(o.contadoPor) : '') : `${x.counted} de ${o.items.length} contados`}</div>
       </button>`;
     }).join('');
     list.querySelectorAll('.order-item').forEach((b) => { b.onclick = () => openOrder(b.dataset.id); });
   }
+
+  // ---------- Colores ----------
+  const THEMES = [
+    { id: 'menta', name: 'Menta', desc: 'Crema y verde salvia', c: ['#f4f1ea', '#2f6b4f', '#d6e9dc', '#f7dcc4', '#e2dcf7', '#fbedb0'], text: '#1d2621' },
+    { id: 'lavanda', name: 'Lavanda', desc: 'Lila con durazno', c: ['#f4f2fa', '#5a48c8', '#e3dcff', '#ffd8cc', '#cff0e4', '#fff0bf'], text: '#221d38' },
+    { id: 'oceano', name: 'Océano', desc: 'Azul marino y coral', c: ['#edf2f7', '#17467e', '#d3e5fa', '#ffd5cc', '#cfefea', '#fde7b3'], text: '#0f2135' },
+    { id: 'grafito', name: 'Grafito', desc: 'Oscuro con lima', c: ['#0f1012', '#c8f04a', '#1f2d25', '#33261c', '#262338', '#2f2b17'], text: '#edece7' },
+  ];
+  function applyTheme(id) {
+    document.documentElement.dataset.theme = id;
+    const t = THEMES.find((x) => x.id === id);
+    if (t) document.querySelector('meta[name=theme-color]').content = t.c[0];
+  }
+  $('#btnTheme').onclick = async () => {
+    const curr = document.documentElement.dataset.theme;
+    const r = await ask({ title: 'Colores',
+      html: '<div class="theme-grid">' + THEMES.map((t) => `<button class="theme-opt ${t.id === curr ? 'on' : ''}" value="${t.id}"
+          style="--sw-bg:${t.c[0]};--sw-text:${t.text}">
+          <div class="sw">${t.c.slice(1).map((c) => `<i style="background:${c}"></i>`).join('')}</div>
+          ${t.name}<small>${t.desc}</small></button>`).join('') + '</div>',
+      buttons: [{ label: 'Cerrar', value: '' }] });
+    if (!r.value) return;
+    applyTheme(r.value);
+    try { localStorage.setItem('revision-tema', r.value); } catch (e) { /* sin almacenamiento */ }
+  };
+  applyTheme(document.documentElement.dataset.theme || 'menta');
 
   $('#btnNewOrder').onclick = () => startLoad();
   $('#fileOpenOrder').onchange = async (e) => {
@@ -305,6 +348,9 @@
     show('order', current.nombre);
     $('#orderTitle').textContent = current.nombre;
     $('#orderMeta').textContent = `${current.sucursal ? current.sucursal + ' · ' : ''}${current.items.length} productos · creado ${fmtDate(current.creado)}`;
+    const x = orderStatus(current);
+    $('#orderProgress').textContent = current.finishedAt ? 'Conteo cerrado · ver diferencias'
+      : x.counted ? `Seguir: ${x.counted} de ${current.items.length} contados` : 'Toca para empezar a contar';
     $('#shareInfo').textContent = '';
   }
 
@@ -439,6 +485,7 @@
     if (n === prev) return;
     if (n) current.counts[item.id] = n; else delete current.counts[item.id];
     if (log) current.log.push({ t: 'i', id: item.id, prev });
+    current.startedAt = current.startedAt || Date.now();
     if (current.log.length > 300) current.log.shift();
     save();
     updateItemRow(item);
@@ -486,6 +533,7 @@
     let ex = current.extras.find((x) => normCode(x.codigo) + '|' + normLote(x.lote) + '|' + normText(x.producto) === key);
     if (!ex) { ex = { id: uid(), codigo, producto, lote, motivo, cantidad: 0 }; current.extras.push(ex); }
     current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
+    current.startedAt = current.startedAt || Date.now();
     ex.cantidad += amount;
     save();
     renderExtras();
@@ -709,14 +757,22 @@
       const pending = current.items.filter((i) => !qty(i)).length;
       const r = await ask({ title: '¿Terminaste de contar?',
         html: `<p>${pending ? `Hay <b>${pending}</b> productos sin contar; se tomarán como <b>no recibidos (0)</b>.` : 'Todos los productos tienen conteo.'}</p>
+          <label>Contado por<input name="por" placeholder="Nombre de quien contó" value="${esc(lastPerson())}"></label>
           <p class="small muted">Al ver las diferencias el conteo queda cerrado.</p>`,
         buttons: [{ label: 'Seguir contando', value: '' }, { label: 'Sí, ver diferencias', value: 'ok', cls: 'primary' }] });
       if (r.value !== 'ok') return;
       current.finishedAt = Date.now();
+      current.contadoPor = (r.fields.por || '').trim();
+      try { localStorage.setItem('revision-responsable', current.contadoPor); } catch (e) { /* sin almacenamiento */ }
       save();
     }
     renderResults();
   }
+
+  function lastPerson() {
+    try { return localStorage.getItem('revision-responsable') || ''; } catch (e) { return ''; }
+  }
+  const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 
   function computeResults(o) {
     const rows = o.items.map((i) => {
@@ -743,12 +799,23 @@
     const vFalt = -falt.reduce((s, r) => s + r.dif * r.precio, 0);
     const ok = rows.length - diffs.length;
 
+    const pct = rows.length ? Math.round((ok / rows.length) * 100) : 0;
+    const dur = current.startedAt && current.finishedAt ? fmtDur(current.finishedAt - current.startedAt) : '—';
     $('#summary').innerHTML = `
-      <div class="kpi ${diffs.length ? '' : 'good'}"><b>${ok}</b><span>Correctos</span></div>
-      <div class="kpi bad"><b>${uFalt}</b><span>Unid. faltantes (${falt.length} prod.)</span></div>
-      <div class="kpi warn"><b>${uSobr}</b><span>Unid. sobrantes (${sobr.length} prod.)</span></div>
-      <div class="kpi"><b>$ ${fmtMoney(vFalt)}</b><span>Valor faltante</span></div>
-      <p class="small muted full">Conteo cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.reopened ? ` · reabierto ${current.reopened} vez/veces` : ''}</p>`;
+      <div class="tile t0 span4">
+        <span class="tile-kicker">${esc(current.sucursal || 'Sucursal')} · ${current.items.length} productos</span>
+        <span class="tile-big">${esc(current.nombre)}</span>
+        <span class="tile-sub">Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened} vez/veces` : ''}</span>
+      </div>
+      <div class="tile ${diffs.length ? 't1' : 'accent'} span2 tall">
+        <span class="tile-label">Correctos</span>
+        <span class="tile-num" style="font-size:clamp(2.6rem,7vw,4rem)">${pct}%</span>
+        <span class="tile-sub">${ok} de ${rows.length} líneas sin diferencia</span>
+      </div>
+      <div class="tile t2"><span class="tile-label">Faltan</span><span class="tile-num">${uFalt}</span><span class="tile-sub">unidades · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</span></div>
+      <div class="tile t4"><span class="tile-label">Sobran</span><span class="tile-num">${uSobr}</span><span class="tile-sub">unidades · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</span></div>
+      <div class="tile t3"><span class="tile-label">Valor faltante</span><span class="tile-num" style="font-size:clamp(1.5rem,3.6vw,2.1rem)">$ ${fmtMoney(vFalt)}</span><span class="tile-sub">según precio del pedido</span></div>
+      <div class="tile t5"><span class="tile-label">Tiempo de conteo</span><span class="tile-num" style="font-size:clamp(1.5rem,3.6vw,2.1rem)">${dur}</span><span class="tile-sub">primer registro → cierre</span></div>`;
     renderResultsTable(rows);
   }
 
@@ -760,7 +827,7 @@
       $('#resultsTable').innerHTML = '<div class="card center good-msg">✅ ¡Todo correcto! El pedido llegó completo.</div>';
       return;
     }
-    $('#resultsTable').innerHTML = `<div class="table-wrap card"><table class="results">
+    $('#resultsTable').innerHTML = `<div class="table-wrap card results-card"><table class="results">
       <thead><tr><th>Producto</th><th>Lote</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
       <tbody>${list.map((r) => `<tr class="${r.dif < 0 ? 'neg' : r.dif > 0 ? 'pos' : ''}">
         <td>${esc(r.producto)}<div class="small muted mono">${esc(r.codigo)}</div></td>
@@ -786,6 +853,10 @@
     const ws = XLSX.utils.json_to_sheet(exportRows());
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
+    const info = [['Pedido', current.nombre], ['Sucursal', current.sucursal || ''], ['Contado por', current.contadoPor || ''],
+      ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
+      ['Veces reabierto', current.reopened || 0]];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');
     XLSX.writeFile(wb, safeName(current.nombre) + '-diferencias.xlsx');
   };
   $('#btnExportCsv').onclick = () => {
@@ -799,6 +870,7 @@
     const diffs = computeResults(current).filter((r) => r.dif !== 0);
     const lines = diffs.map((r) => `• ${r.producto}${r.lote ? ' (L ' + r.lote + ')' : ''}: llegó ${r.contado} und | debería ser ${r.esperado} und → ${r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif}${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}`);
     const text = `Revisión ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
+      (current.contadoPor ? `Contó: ${current.contadoPor}\n` : '') +
       (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : '✅ Todo correcto, sin diferencias.');
     if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
     window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
@@ -817,6 +889,9 @@
 
   // ---------- Arranque ----------
   window.addEventListener('hashchange', checkHash);
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
+  }
   if (!checkHash()) renderHome();
 
   // Exponer funciones para pruebas

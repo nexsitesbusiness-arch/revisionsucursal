@@ -22,6 +22,26 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
    Se puede exportar a Excel/CSV, imprimir o compartir el resumen por WhatsApp. Si se reabre el conteo, queda registrado.
 
+## Colores (estilo bento)
+
+Botón 🎨 arriba a la derecha. Cuatro paletas; se recuerda la elegida en cada equipo:
+
+| Paleta | Uso sugerido |
+|---|---|
+| **Menta** (crema + verde salvia) | Predeterminada, tono farmacia |
+| **Lavanda** (lila + durazno) | Más cálida y suave |
+| **Océano** (azul marino + coral) | Corporativa, alto contraste |
+| **Grafito** (oscuro + lima) | Bodega con poca luz; ahorra batería |
+
+<img src="docs/capturas/paletas-inicio.png" width="900">
+<img src="docs/capturas/paletas-diferencias.png" width="900">
+
+## Instalar en la tablet (funciona sin internet)
+
+Abrir la página en Chrome/Safari → menú → **Agregar a pantalla de inicio**. Queda como app con ícono propio y, después de abrirla una vez con internet, se puede contar sin conexión.
+
+Al cerrar el conteo se registra **quién contó** y la hora de inicio y cierre (aparece en el resumen, en el Excel y en el mensaje de WhatsApp).
+
 ## Proceso completo (vista en tablet)
 
 ### 1. Central: cargar y enviar el pedido
