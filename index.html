@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>Revisión de Pedidos</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="btnHome" title="Inicio" aria-label="Inicio">⌂</button>
+    <h1 id="title">Revisión de Pedidos</h1>
+    <span></span>
+  </header>
+
+  <main id="app">
+    <!-- INICIO -->
+    <section id="view-home" class="view">
+      <div class="card">
+        <h2>Pedidos</h2>
+        <p class="muted">Carga un pedido desde la central o abre uno que te enviaron para contarlo en la sucursal.</p>
+        <div class="row gap">
+          <button class="btn primary" id="btnNewOrder">＋ Cargar pedido nuevo</button>
+          <label class="btn">
+            📂 Abrir archivo de pedido
+            <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
+          </label>
+        </div>
+      </div>
+      <div id="orderList"></div>
+    </section>
+
+    <!-- CARGA DEL PEDIDO (CENTRAL) -->
+    <section id="view-load" class="view" hidden>
+      <div class="card">
+        <h2>1. Datos del pedido</h2>
+        <div class="grid2">
+          <label>Nombre / N° de pedido
+            <input id="orderName" placeholder="Ej: Pedido 1052">
+          </label>
+          <label>Sucursal
+            <input id="orderBranch" placeholder="Ej: Sucursal Centro">
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Productos</h2>
+        <p class="muted">Sube el Excel o CSV del pedido. Columnas reconocidas: <b>código</b> (de barras), <b>producto</b>, <b>lote</b>, <b>precio</b>, <b>cantidad</b> y opcional <b>vencimiento</b>.</p>
+        <div class="row gap">
+          <label class="btn primary">
+            📄 Subir Excel / CSV
+            <input type="file" id="fileExcel" accept=".xlsx,.xls,.csv,.txt" hidden>
+          </label>
+          <button class="btn" id="btnPaste">📋 Pegar desde Excel</button>
+          <a class="btn" href="ejemplo-pedido.csv" download>⬇ Plantilla de ejemplo</a>
+        </div>
+
+        <div id="pasteBox" hidden>
+          <textarea id="pasteArea" rows="6" placeholder="Copia las filas en Excel (con encabezados) y pégalas aquí"></textarea>
+          <button class="btn primary" id="btnPasteApply">Agregar filas pegadas</button>
+        </div>
+
+        <details class="manual">
+          <summary>Agregar producto a mano</summary>
+          <form id="manualForm" class="grid-manual">
+            <input name="codigo" placeholder="Código de barras" inputmode="numeric">
+            <input name="producto" placeholder="Producto *" required>
+            <input name="lote" placeholder="Lote">
+            <input name="precio" placeholder="Precio" inputmode="decimal">
+            <input name="cantidad" placeholder="Cantidad *" inputmode="numeric" required>
+            <input name="vencimiento" placeholder="Vencimiento">
+            <button class="btn primary">Agregar</button>
+          </form>
+        </details>
+
+        <div id="loadPreview"></div>
+      </div>
+
+      <div class="card sticky-actions">
+        <button class="btn primary big" id="btnSaveOrder">💾 Guardar pedido</button>
+      </div>
+    </section>
+
+    <!-- DETALLE DEL PEDIDO / ENVÍO -->
+    <section id="view-order" class="view" hidden>
+      <div class="card">
+        <h2 id="orderTitle"></h2>
+        <p class="muted" id="orderMeta"></p>
+        <div class="row gap">
+          <button class="btn primary big" id="btnStartCount">📦 Comenzar / seguir conteo</button>
+          <button class="btn" id="btnShowResults">📊 Ver diferencias</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Enviar a la sucursal</h3>
+        <p class="muted">La sucursal abre el enlace o el archivo y cuenta <b>sin ver las cantidades</b> enviadas.</p>
+        <div class="row gap">
+          <button class="btn" id="btnShareLink">🔗 Compartir enlace</button>
+          <button class="btn" id="btnDownloadOrder">⬇ Descargar archivo</button>
+        </div>
+        <p class="small muted" id="shareInfo"></p>
+      </div>
+      <div class="card">
+        <button class="btn danger" id="btnDeleteOrder">🗑 Eliminar pedido</button>
+      </div>
+    </section>
+
+    <!-- CONTEO (SUCURSAL) -->
+    <section id="view-count" class="view" hidden>
+      <div class="count-head">
+        <div class="progress"><div class="bar" id="progressBar"></div></div>
+        <p class="small" id="progressText"></p>
+        <div class="search-row">
+          <input type="search" id="search" placeholder="🔎 Buscar producto, código o lote" autocomplete="off">
+          <button class="btn primary" id="btnScan" title="Escanear con cámara">📷 Escanear</button>
+        </div>
+        <div class="row gap small-gap">
+          <label class="inline small">Unidades por escaneo
+            <input type="number" id="scanQty" value="1" min="1" class="tiny">
+          </label>
+          <label class="inline small"><input type="checkbox" id="onlyPending"> Solo sin contar</label>
+          <button class="btn small" id="btnUndo">↶ Deshacer</button>
+        </div>
+      </div>
+
+      <div id="scanner" hidden>
+        <div id="reader"></div>
+        <p class="small muted" id="scanStatus">Apunta al código de barras…</p>
+        <div class="row gap">
+          <button class="btn" id="btnTorch" hidden>🔦 Linterna</button>
+          <button class="btn" id="btnStopScan">Cerrar cámara</button>
+        </div>
+      </div>
+
+      <div id="toast" class="toast" hidden></div>
+      <ul id="countList" class="items"></ul>
+      <div id="extrasBox"></div>
+
+      <div class="card sticky-actions">
+        <button class="btn" id="btnAddExtra">＋ Producto que no está en la lista</button>
+        <button class="btn primary big" id="btnFinish">✅ Terminé, ver diferencias</button>
+      </div>
+    </section>
+
+    <!-- RESULTADOS -->
+    <section id="view-results" class="view" hidden>
+      <div class="card">
+        <h2>Diferencias</h2>
+        <div id="summary" class="summary"></div>
+        <div class="row gap">
+          <label class="inline small"><input type="checkbox" id="onlyDiffs" checked> Solo con diferencias</label>
+        </div>
+        <div class="row gap">
+          <button class="btn" id="btnExportXlsx">⬇ Excel</button>
+          <button class="btn" id="btnExportCsv">⬇ CSV</button>
+          <button class="btn" id="btnPrint">🖨 Imprimir</button>
+          <button class="btn" id="btnShareResults">📤 Compartir resumen</button>
+          <button class="btn" id="btnBackToCount">↩ Volver al conteo</button>
+        </div>
+      </div>
+      <div id="resultsTable"></div>
+    </section>
+  </main>
+
+  <!-- Diálogo genérico -->
+  <dialog id="dlg">
+    <form method="dialog" id="dlgForm">
+      <h3 id="dlgTitle"></h3>
+      <div id="dlgBody"></div>
+      <div class="row gap end" id="dlgActions"></div>
+    </form>
+  </dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="gs1.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

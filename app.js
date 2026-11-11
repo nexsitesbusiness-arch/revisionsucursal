@@ -1,0 +1,824 @@
+/* Revisión de pedidos en sucursal
+ * - La central carga el pedido (producto, código, lote, precio, cantidad).
+ * - La sucursal cuenta a ciegas (sin ver la cantidad enviada), buscando o escaneando.
+ * - Al terminar se muestran las diferencias: contado vs. lo que debería ser.
+ * Todo se guarda en el navegador (localStorage); no hay servidor.
+ */
+(function () {
+  'use strict';
+
+  const STORE_KEY = 'revision-pedidos-v1';
+  const $ = (sel) => document.querySelector(sel);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const fmtMoney = (n) => (Number(n) || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtDate = (ts) => new Date(ts).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' });
+
+  // ---------- Normalización ----------
+  const stripAccents = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const normText = (s) => stripAccents(s).toLowerCase().trim();
+  // Códigos: sin espacios; si es numérico, sin ceros a la izquierda (GTIN-14 == EAN-13).
+  function normCode(c) {
+    const s = String(c ?? '').replace(/\s+/g, '').toUpperCase();
+    return /^\d+$/.test(s) ? s.replace(/^0+/, '') : s;
+  }
+  const normLote = (l) => String(l ?? '').replace(/[\s\-_.]/g, '').toUpperCase();
+
+  function parseNum(v) {
+    if (typeof v === 'number') return v;
+    let s = String(v ?? '').replace(/[^\d.,\-]/g, '');
+    if (!s) return 0;
+    const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+    if (lc > -1 && ld > -1) {
+      s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+    } else if (lc > -1) {
+      s = s.replace(',', '.');
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  // ---------- Almacenamiento ----------
+  let db = load();
+  function load() {
+    try {
+      const d = JSON.parse(localStorage.getItem(STORE_KEY));
+      if (d && Array.isArray(d.orders)) return d;
+    } catch (e) { /* vacío */ }
+    return { orders: [] };
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+    catch (e) { alert('No se pudo guardar en este dispositivo: ' + e.message); }
+  }
+  const getOrder = (id) => db.orders.find((o) => o.id === id);
+
+  // ---------- Navegación ----------
+  let current = null; // pedido abierto
+  const views = ['home', 'load', 'order', 'count', 'results'];
+  function show(view, title) {
+    views.forEach((v) => { $('#view-' + v).hidden = v !== view; });
+    $('#title').textContent = title || 'Revisión de Pedidos';
+    if (view !== 'count') stopScanner();
+    window.scrollTo(0, 0);
+  }
+  $('#btnHome').onclick = () => renderHome();
+
+  // ---------- Diálogo ----------
+  function ask({ title, html = '', buttons = [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] }) {
+    const dlg = $('#dlg');
+    $('#dlgTitle').textContent = title;
+    $('#dlgBody').innerHTML = html;
+    $('#dlgActions').innerHTML = buttons.map((b) =>
+      `<button class="btn ${b.cls || ''}" value="${esc(b.value)}">${esc(b.label)}</button>`).join('');
+    return new Promise((resolve) => {
+      dlg.onclose = () => {
+        const fields = {};
+        dlg.querySelectorAll('#dlgBody [name]').forEach((el) => { fields[el.name] = el.value; });
+        resolve({ value: dlg.returnValue, fields });
+      };
+      // Enter en un campo = botón principal (no el primer botón del formulario).
+      const main = buttons.find((b) => b.cls === 'primary') || buttons[buttons.length - 1];
+      dlg.onkeydown = (e) => {
+        if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); dlg.close(main.value); }
+      };
+      dlg.returnValue = '';
+      dlg.showModal();
+      const first = dlg.querySelector('#dlgBody input');
+      if (first) setTimeout(() => first.focus(), 50);
+    });
+  }
+
+  // =========================================================
+  // INICIO
+  // =========================================================
+  function renderHome() {
+    current = null;
+    show('home');
+    const list = $('#orderList');
+    if (!db.orders.length) {
+      list.innerHTML = '<div class="card muted center">Todavía no hay pedidos.</div>';
+      return;
+    }
+    list.innerHTML = db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
+      const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
+      const state = o.finishedAt ? '<span class="tag ok">Terminado</span>'
+        : counted ? '<span class="tag warn">En conteo</span>' : '<span class="tag">Sin contar</span>';
+      return `<button class="card order-item" data-id="${o.id}">
+        <div><b>${esc(o.nombre || 'Pedido')}</b> ${state}</div>
+        <div class="small muted">${esc(o.sucursal || '')} · ${o.items.length} productos · ${fmtDate(o.creado)}</div>
+        <div class="small muted">${counted} de ${o.items.length} contados</div>
+      </button>`;
+    }).join('');
+    list.querySelectorAll('.order-item').forEach((b) => { b.onclick = () => openOrder(b.dataset.id); });
+  }
+
+  $('#btnNewOrder').onclick = () => startLoad();
+  $('#fileOpenOrder').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { importPayload(JSON.parse(await f.text()).pedido); }
+    catch (err) { alert('El archivo no es un pedido válido.'); }
+  };
+
+  // =========================================================
+  // CARGA (CENTRAL)
+  // =========================================================
+  let draft = [];
+  function startLoad() {
+    draft = [];
+    $('#orderName').value = '';
+    $('#orderBranch').value = '';
+    renderPreview();
+    show('load', 'Cargar pedido');
+  }
+
+  const HEADER_RULES = [
+    ['vencimiento', /venc|expir|caduc|^f\.?v/],
+    ['lote', /lote|batch/],
+    ['cantidad', /cant|unidades|^und|qty|^uds/],
+    ['precio', /precio|p\.?\s?unit|valor|costo|importe/],
+    ['codigo', /cod|barra|ean|gtin|upc|sku/],
+    ['producto', /producto|descrip|nombre|articulo|item|detalle/],
+  ];
+  function mapHeaders(row) {
+    const map = {};
+    row.forEach((h, idx) => {
+      const n = normText(h);
+      if (!n) return;
+      for (const [key, re] of HEADER_RULES) {
+        if (map[key] === undefined && re.test(n)) { map[key] = idx; break; }
+      }
+    });
+    return map;
+  }
+
+  function rowsToItems(rows) {
+    let hIdx = -1, map = null;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const m = mapHeaders(rows[i]);
+      if (m.producto !== undefined) { hIdx = i; map = m; break; }
+    }
+    if (!map) throw new Error('No encontré la columna "Producto". Revisa que la primera fila tenga los encabezados.');
+    if (map.cantidad === undefined) throw new Error('No encontré la columna "Cantidad".');
+    const items = [];
+    for (const r of rows.slice(hIdx + 1)) {
+      const producto = String(r[map.producto] ?? '').trim();
+      if (!producto) continue;
+      let venc = map.vencimiento !== undefined ? r[map.vencimiento] : '';
+      if (venc instanceof Date) venc = venc.toISOString().slice(0, 10);
+      items.push({
+        codigo: map.codigo !== undefined ? String(r[map.codigo] ?? '').trim() : '',
+        producto,
+        lote: map.lote !== undefined ? String(r[map.lote] ?? '').trim() : '',
+        precio: map.precio !== undefined ? parseNum(r[map.precio]) : 0,
+        cantidad: parseNum(r[map.cantidad]),
+        vencimiento: String(venc ?? '').trim(),
+      });
+    }
+    return items;
+  }
+
+  // CSV / texto pegado (detecta ; , o tabulación)
+  function parseDelimited(text) {
+    const first = text.split(/\r?\n/).find((l) => l.trim()) || '';
+    const counts = { '\t': first.split('\t').length, ';': first.split(';').length, ',': first.split(',').length };
+    const d = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+        else if (c === '"') q = false;
+        else cell += c;
+      } else if (c === '"' && cell === '') q = true;
+      else if (c === d) { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  function addToDraft(items) {
+    // Une filas repetidas (mismo código + lote + producto) sumando cantidades.
+    for (const it of items) {
+      const key = normCode(it.codigo) + '|' + normLote(it.lote) + '|' + normText(it.producto);
+      const ex = draft.find((d) => normCode(d.codigo) + '|' + normLote(d.lote) + '|' + normText(d.producto) === key);
+      if (ex) ex.cantidad += it.cantidad;
+      else draft.push({ id: uid(), ...it });
+    }
+    renderPreview();
+  }
+
+  $('#fileExcel').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      let rows;
+      if (/\.(csv|txt)$/i.test(f.name)) {
+        rows = parseDelimited(await f.text());
+      } else {
+        const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+      }
+      const items = rowsToItems(rows);
+      addToDraft(items);
+      if (!$('#orderName').value) $('#orderName').value = f.name.replace(/\.[^.]+$/, '');
+      toastLoad(`${items.length} productos cargados`);
+    } catch (err) { alert(err.message); }
+  };
+
+  $('#btnPaste').onclick = () => { $('#pasteBox').hidden = !$('#pasteBox').hidden; };
+  $('#btnPasteApply').onclick = () => {
+    try {
+      const items = rowsToItems(parseDelimited($('#pasteArea').value));
+      addToDraft(items);
+      $('#pasteArea').value = '';
+      $('#pasteBox').hidden = true;
+      toastLoad(`${items.length} productos agregados`);
+    } catch (err) { alert(err.message); }
+  };
+
+  $('#manualForm').onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    addToDraft([{
+      codigo: f.get('codigo').trim(), producto: f.get('producto').trim(), lote: f.get('lote').trim(),
+      precio: parseNum(f.get('precio')), cantidad: parseNum(f.get('cantidad')), vencimiento: f.get('vencimiento').trim(),
+    }]);
+    e.target.reset();
+    e.target.querySelector('[name=codigo]').focus();
+  };
+
+  function toastLoad(msg) {
+    const p = $('#loadPreview').querySelector('.ok-msg');
+    if (p) p.textContent = '✔ ' + msg;
+  }
+
+  function renderPreview() {
+    const el = $('#loadPreview');
+    if (!draft.length) { el.innerHTML = '<p class="muted center">Aún no hay productos.</p>'; return; }
+    const total = draft.reduce((s, i) => s + i.cantidad * i.precio, 0);
+    const units = draft.reduce((s, i) => s + i.cantidad, 0);
+    el.innerHTML = `<p class="ok-msg small"></p>
+      <p><b>${draft.length}</b> productos · <b>${units}</b> unidades · Total $ ${fmtMoney(total)}</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Código</th><th>Producto</th><th>Lote</th><th class="num">Precio</th><th class="num">Cant.</th><th></th></tr></thead>
+        <tbody>${draft.map((i) => `<tr>
+          <td class="mono">${esc(i.codigo)}</td><td>${esc(i.producto)}</td><td class="mono">${esc(i.lote)}</td>
+          <td class="num">${fmtMoney(i.precio)}</td><td class="num">${i.cantidad}</td>
+          <td><button class="icon-btn small" data-del="${i.id}" title="Quitar">✕</button></td></tr>`).join('')}
+        </tbody></table></div>`;
+    el.querySelectorAll('[data-del]').forEach((b) => {
+      b.onclick = () => { draft = draft.filter((d) => d.id !== b.dataset.del); renderPreview(); };
+    });
+  }
+
+  $('#btnSaveOrder').onclick = () => {
+    if (!draft.length) return alert('Agrega al menos un producto.');
+    const o = newOrder({
+      nombre: $('#orderName').value.trim() || 'Pedido ' + new Date().toLocaleDateString('es'),
+      sucursal: $('#orderBranch').value.trim(),
+      items: draft,
+    });
+    db.orders.push(o);
+    save();
+    openOrder(o.id);
+  };
+
+  function newOrder({ id, nombre, sucursal, creado, items, origen = 'central' }) {
+    return { id: id || uid(), nombre, sucursal, creado: creado || Date.now(), origen, items, counts: {}, extras: [], log: [], finishedAt: null, reopened: 0 };
+  }
+
+  // =========================================================
+  // PEDIDO: ENVÍO / IMPORTACIÓN
+  // =========================================================
+  function openOrder(id) {
+    current = getOrder(id);
+    if (!current) return renderHome();
+    show('order', current.nombre);
+    $('#orderTitle').textContent = current.nombre;
+    $('#orderMeta').textContent = `${current.sucursal ? current.sucursal + ' · ' : ''}${current.items.length} productos · creado ${fmtDate(current.creado)}`;
+    $('#shareInfo').textContent = '';
+  }
+
+  // El pedido viaja comprimido, así las cantidades no quedan a la vista.
+  function exportPayload(o) {
+    const data = { v: 1, id: o.id, n: o.nombre, s: o.sucursal, c: o.creado,
+      i: o.items.map((i) => [i.codigo, i.producto, i.lote, i.precio, i.cantidad, i.vencimiento]) };
+    return LZString.compressToEncodedURIComponent(JSON.stringify(data));
+  }
+  function importPayload(str) {
+    const d = JSON.parse(LZString.decompressFromEncodedURIComponent(str));
+    if (!d || d.v !== 1 || !Array.isArray(d.i)) throw new Error('inválido');
+    const existing = getOrder(d.id);
+    if (existing) { openOrder(existing.id); return; }
+    const o = newOrder({ id: d.id, nombre: d.n, sucursal: d.s, creado: d.c, origen: 'recibido',
+      items: d.i.map(([codigo, producto, lote, precio, cantidad, vencimiento]) =>
+        ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento })) });
+    db.orders.push(o);
+    save();
+    openOrder(o.id);
+  }
+
+  $('#btnShareLink').onclick = async () => {
+    const url = location.origin + location.pathname + '#p=' + exportPayload(current);
+    const text = `Pedido "${current.nombre}" para revisar:`;
+    if (navigator.share) {
+      try { await navigator.share({ title: current.nombre, text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    try { await navigator.clipboard.writeText(url); $('#shareInfo').textContent = 'Enlace copiado. Pégalo en WhatsApp o correo.'; }
+    catch (e) { prompt('Copia este enlace:', url); }
+    if (url.length > 60000) $('#shareInfo').textContent += ' (El pedido es grande; si el enlace no abre, usa “Descargar archivo”.)';
+  };
+  $('#btnDownloadOrder').onclick = () => {
+    const blob = new Blob([JSON.stringify({ pedido: exportPayload(current) })], { type: 'application/json' });
+    download(blob, safeName(current.nombre) + '.pedido');
+  };
+  $('#btnDeleteOrder').onclick = async () => {
+    const r = await ask({ title: '¿Eliminar este pedido?', html: '<p>Se borrará también el conteo.</p>',
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
+    if (r.value !== 'del') return;
+    db.orders = db.orders.filter((o) => o.id !== current.id);
+    save();
+    renderHome();
+  };
+  $('#btnStartCount').onclick = () => startCount();
+  $('#btnShowResults').onclick = () => finishCount();
+
+  function checkHash() {
+    const m = location.hash.match(/^#p=(.+)$/);
+    if (!m) return false;
+    history.replaceState(null, '', location.pathname + location.search);
+    try { importPayload(m[1]); return true; }
+    catch (e) { alert('El enlace del pedido está incompleto o dañado.'); return false; }
+  }
+
+  // =========================================================
+  // CONTEO (SUCURSAL)
+  // =========================================================
+  function startCount() {
+    if (current.finishedAt) {
+      ask({ title: 'Este conteo ya fue terminado', html: '<p>¿Quieres reabrirlo para corregir? Quedará registrado que se reabrió.</p>',
+        buttons: [{ label: 'Ver diferencias', value: 'res' }, { label: 'Reabrir conteo', value: 'open', cls: 'primary' }] })
+        .then((r) => {
+          if (r.value === 'open') { current.finishedAt = null; current.reopened = (current.reopened || 0) + 1; save(); startCount(); }
+          else if (r.value === 'res') renderResults();
+        });
+      return;
+    }
+    show('count', current.nombre);
+    $('#search').value = '';
+    renderCount();
+  }
+
+  const qty = (item) => current.counts[item.id] || 0;
+
+  function itemMatches(i, q) {
+    if (!q) return true;
+    const hay = normText(`${i.producto} ${i.codigo} ${i.lote}`);
+    return q.split(/\s+/).every((t) => hay.includes(t));
+  }
+
+  function renderCount() {
+    const q = normText($('#search').value);
+    const onlyPending = $('#onlyPending').checked;
+    let items = current.items.filter((i) => itemMatches(i, q) && (!onlyPending || !qty(i)));
+    items.sort((a, b) => a.producto.localeCompare(b.producto, 'es'));
+    const list = $('#countList');
+    list.innerHTML = items.length ? items.map(itemHtml).join('')
+      : '<li class="muted center">No hay productos que coincidan.</li>';
+    renderExtras();
+    renderProgress();
+  }
+
+  function itemHtml(i) {
+    const n = qty(i);
+    const meta = [
+      i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
+      i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
+      i.vencimiento && `Vence ${esc(i.vencimiento)}`,
+      i.precio ? `$ ${fmtMoney(i.precio)}` : '',
+    ].filter(Boolean).join(' · ');
+    return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
+      <div class="info"><div class="name">${esc(i.producto)}</div><div class="meta small">${meta}</div></div>
+      <div class="stepper">
+        <button class="step" data-act="dec" aria-label="Restar">−</button>
+        <input class="qty" type="number" inputmode="numeric" min="0" value="${n || ''}" placeholder="0" data-act="set" aria-label="Cantidad contada">
+        <button class="step" data-act="inc" aria-label="Sumar">+</button>
+      </div>
+    </li>`;
+  }
+
+  function renderProgress() {
+    const total = current.items.length;
+    const done = current.items.filter((i) => qty(i) > 0).length;
+    const units = Object.values(current.counts).reduce((s, n) => s + n, 0) + current.extras.reduce((s, e) => s + e.cantidad, 0);
+    $('#progressBar').style.width = (total ? (done / total) * 100 : 0) + '%';
+    $('#progressText').textContent = `${done} de ${total} productos contados · ${units} unidades registradas`;
+  }
+
+  function updateItemRow(item) {
+    const li = $(`#countList li[data-id="${item.id}"]`);
+    if (!li) return;
+    const n = qty(item);
+    li.classList.toggle('done', n > 0);
+    const input = li.querySelector('.qty');
+    if (document.activeElement !== input) input.value = n || '';
+  }
+
+  function setCount(item, n, { log = true } = {}) {
+    n = Math.max(0, Math.round(n));
+    const prev = qty(item);
+    if (n === prev) return;
+    if (n) current.counts[item.id] = n; else delete current.counts[item.id];
+    if (log) current.log.push({ t: 'i', id: item.id, prev });
+    if (current.log.length > 300) current.log.shift();
+    save();
+    updateItemRow(item);
+    renderProgress();
+  }
+
+  $('#search').oninput = () => renderCount();
+  $('#onlyPending').onchange = () => renderCount();
+
+  $('#countList').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || btn.tagName === 'INPUT') return;
+    const item = current.items.find((i) => i.id === btn.closest('li').dataset.id);
+    if (!item) return;
+    setCount(item, qty(item) + (btn.dataset.act === 'inc' ? 1 : -1));
+  });
+  $('#countList').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('qty')) return;
+    const item = current.items.find((i) => i.id === e.target.closest('li').dataset.id);
+    if (item) setCount(item, parseNum(e.target.value));
+  });
+  $('#countList').addEventListener('focusin', (e) => { if (e.target.classList.contains('qty')) e.target.select(); });
+
+  $('#btnUndo').onclick = () => {
+    const last = current.log.pop();
+    if (!last) return flash('Nada para deshacer', 'info');
+    if (last.t === 'i') {
+      const item = current.items.find((i) => i.id === last.id);
+      if (item) { setCount(item, last.prev, { log: false }); flash(`Deshecho: ${item.producto}`, 'info'); }
+    } else if (last.t === 'e') {
+      const ex = current.extras.find((x) => x.id === last.id);
+      if (ex) {
+        ex.cantidad = last.prev;
+        if (!ex.cantidad) current.extras = current.extras.filter((x) => x !== ex);
+        save(); renderExtras(); renderProgress();
+        flash('Deshecho: ' + ex.producto, 'info');
+      }
+    }
+    save();
+  };
+
+  // ---------- Productos que no están en el pedido / lote distinto ----------
+  function addExtra({ codigo = '', producto, lote = '', motivo }, amount) {
+    const key = normCode(codigo) + '|' + normLote(lote) + '|' + normText(producto);
+    let ex = current.extras.find((x) => normCode(x.codigo) + '|' + normLote(x.lote) + '|' + normText(x.producto) === key);
+    if (!ex) { ex = { id: uid(), codigo, producto, lote, motivo, cantidad: 0 }; current.extras.push(ex); }
+    current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
+    ex.cantidad += amount;
+    save();
+    renderExtras();
+    renderProgress();
+    return ex;
+  }
+
+  function renderExtras() {
+    const box = $('#extrasBox');
+    if (!current.extras.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<h3 class="section-title">⚠ Recibidos que no estaban en el pedido</h3>
+      <ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
+        <div class="info"><div class="name">${esc(x.producto)}</div>
+          <div class="meta small">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
+        <div class="stepper">
+          <button class="step" data-xact="dec">−</button>
+          <input class="qty" type="number" min="0" value="${x.cantidad}" data-xact="set">
+          <button class="step" data-xact="inc">+</button>
+        </div></li>`).join('')}</ul>`;
+  }
+  function changeExtra(xid, fn) {
+    const ex = current.extras.find((x) => x.id === xid);
+    if (!ex) return;
+    current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
+    ex.cantidad = Math.max(0, Math.round(fn(ex.cantidad)));
+    if (!ex.cantidad) current.extras = current.extras.filter((x) => x !== ex);
+    save(); renderExtras(); renderProgress();
+  }
+  $('#extrasBox').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-xact]');
+    if (!b) return;
+    changeExtra(b.closest('li').dataset.xid, (n) => n + (b.dataset.xact === 'inc' ? 1 : -1));
+  });
+  $('#extrasBox').addEventListener('change', (e) => {
+    if (e.target.dataset.xact === 'set') changeExtra(e.target.closest('li').dataset.xid, () => parseNum(e.target.value));
+  });
+
+  $('#btnAddExtra').onclick = async () => {
+    const r = await ask({ title: 'Producto que no está en la lista',
+      html: `<label>Producto<input name="producto"></label>
+        <label>Código de barras<input name="codigo" inputmode="numeric"></label>
+        <label>Lote<input name="lote"></label>
+        <label>Cantidad<input name="cantidad" type="number" min="1" value="1"></label>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Agregar', value: 'ok', cls: 'primary' }] });
+    if (r.value !== 'ok' || !r.fields.producto.trim()) return;
+    addExtra({ codigo: r.fields.codigo.trim(), producto: r.fields.producto.trim(), lote: r.fields.lote.trim(), motivo: 'No estaba en el pedido' },
+      Math.max(1, parseNum(r.fields.cantidad)));
+  };
+
+  // ---------- Avisos ----------
+  let toastTimer;
+  function flash(msg, kind = 'ok') {
+    const t = $('#toast');
+    t.className = 'toast ' + kind;
+    t.innerHTML = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, kind === 'err' ? 4500 : 2500);
+  }
+  let audioCtx;
+  function beep(ok = true) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = ok ? 1200 : 300;
+      g.gain.value = 0.15;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + (ok ? 0.08 : 0.35));
+    } catch (e) { /* sin audio */ }
+    if (navigator.vibrate) navigator.vibrate(ok ? 60 : [120, 80, 120]);
+  }
+
+  // ---------- Procesar un código escaneado o tipeado ----------
+  let busy = false;
+  async function handleCode(raw) {
+    if (busy) return;
+    busy = true;
+    pauseScanner(true);
+    try { await processCode(raw); }
+    finally { busy = false; pauseScanner(false); }
+  }
+
+  async function processCode(raw) {
+    const amount = Math.max(1, parseNum($('#scanQty').value) || 1);
+    const gs1 = GS1.parse(raw);
+    const code = normCode(gs1 ? gs1.gtin : raw);
+    const scannedLote = gs1 ? gs1.lote : '';
+    const matches = current.items.filter((i) => i.codigo && normCode(i.codigo) === code);
+
+    if (!matches.length) {
+      beep(false);
+      const r = await ask({ title: 'Código no está en el pedido',
+        html: `<p class="mono">${esc(raw)}</p>${scannedLote ? `<p>Lote leído: <b class="mono">${esc(scannedLote)}</b></p>` : ''}
+          <p>Si llegó en la cubeta, regístralo como sobrante.</p>
+          <label>Nombre del producto<input name="producto" placeholder="Ej: Ibuprofeno 400mg"></label>`,
+        buttons: [{ label: 'Ignorar', value: '' }, { label: 'Registrar sobrante', value: 'ok', cls: 'primary' }] });
+      if (r.value === 'ok') {
+        addExtra({ codigo: gs1 ? gs1.gtin : raw, producto: r.fields.producto.trim() || 'Producto sin nombre (' + raw + ')',
+          lote: scannedLote, motivo: 'No estaba en el pedido' }, amount);
+        flash('Registrado como sobrante', 'warn');
+      }
+      return;
+    }
+
+    let target = null;
+    if (scannedLote) {
+      // El código trae lote (DataMatrix GS1): verificamos contra el pedido.
+      target = matches.find((i) => normLote(i.lote) === normLote(scannedLote));
+      if (!target) {
+        beep(false);
+        const expected = matches.map((i) => i.lote || 'sin lote').join(', ');
+        addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: scannedLote, motivo: 'Lote distinto al enviado' }, amount);
+        flash(`❌ <b>Lote incorrecto</b><br>${esc(matches[0].producto)}<br>Leído: <b>${esc(scannedLote)}</b> · Pedido: <b>${esc(expected)}</b>`, 'err');
+        return;
+      }
+    } else if (matches.length === 1) {
+      target = matches[0];
+    } else {
+      // Mismo producto con varios lotes: preguntamos cuál es.
+      const r = await ask({ title: matches[0].producto,
+        html: '<p>Este producto viene en varios lotes. ¿Cuál tienes en la mano?</p>' +
+          matches.map((i) => `<button class="btn block" value="${i.id}">Lote <b class="mono">${esc(i.lote || 'sin lote')}</b>${i.vencimiento ? ' · vence ' + esc(i.vencimiento) : ''}</button>`).join('') +
+          '<label>¿Otro lote? Escríbelo:<input name="otro"></label>',
+        buttons: [{ label: 'Cancelar', value: '' }, { label: 'Usar lote escrito', value: 'otro' }] });
+      if (r.value === 'otro' && r.fields.otro.trim()) {
+        const t = matches.find((i) => normLote(i.lote) === normLote(r.fields.otro));
+        if (t) target = t;
+        else {
+          addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: r.fields.otro.trim(), motivo: 'Lote distinto al enviado' }, amount);
+          beep(false);
+          flash('❌ Lote no corresponde al pedido. Registrado como diferencia.', 'err');
+          return;
+        }
+      } else target = matches.find((i) => i.id === r.value);
+      if (!target) return;
+    }
+
+    setCount(target, qty(target) + amount);
+    beep(true);
+    const loteOk = scannedLote ? ' · lote ✔' : '';
+    flash(`✔ <b>${esc(target.producto)}</b>${target.lote ? ' · L ' + esc(target.lote) : ''}${loteOk}<br>Contados: <b>${qty(target)}</b>`, 'ok');
+    // Lleva el producto a la vista
+    const li = $(`#countList li[data-id="${target.id}"]`);
+    if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
+  }
+
+  // Lector de código de barras USB/Bluetooth (o tipear código + Enter) en el buscador.
+  $('#search').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const v = $('#search').value.trim();
+    if (!v) return;
+    const isCode = /^[\]\(]?[\w\u001d()\]]{6,}$/.test(v) && /\d{6,}/.test(v);
+    const exact = current.items.some((i) => i.codigo && normCode(i.codigo) === normCode(GS1.parse(v)?.gtin || v));
+    if (isCode || exact) {
+      e.preventDefault();
+      $('#search').value = '';
+      renderCount();
+      handleCode(v);
+    }
+  });
+
+  // ---------- Cámara ----------
+  let scanner = null, lastCode = '', lastTime = 0;
+  $('#btnScan').onclick = () => (scanner ? stopScanner() : startScanner());
+  $('#btnStopScan').onclick = () => stopScanner();
+
+  async function startScanner() {
+    if (!window.Html5Qrcode) return alert('No se pudo cargar el lector. Revisa tu conexión a internet.');
+    $('#scanner').hidden = false;
+    $('#btnScan').textContent = '✕ Cerrar';
+    const F = Html5QrcodeSupportedFormats;
+    scanner = new Html5Qrcode('reader', {
+      verbose: false,
+      useBarCodeDetectorIfSupported: true,
+      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE],
+    });
+    try {
+      await scanner.start({ facingMode: 'environment' },
+        { fps: 12, qrbox: (w, h) => ({ width: Math.min(w * 0.85, 360), height: Math.min(h * 0.55, 220) }), aspectRatio: 1.333 },
+        (text) => {
+          const now = Date.now();
+          if (text === lastCode && now - lastTime < 1500) return; // evita contar dos veces el mismo
+          lastCode = text; lastTime = now;
+          handleCode(text);
+        }, () => {});
+      try {
+        const caps = scanner.getRunningTrackCapabilities();
+        $('#btnTorch').hidden = !caps.torch;
+      } catch (e) { /* sin linterna */ }
+      $('#scanStatus').textContent = 'Apunta al código de barras o DataMatrix…';
+    } catch (err) {
+      stopScanner();
+      alert('No se pudo abrir la cámara. Da permiso de cámara al navegador (la página debe abrirse con https).\n\n' + err);
+    }
+  }
+  let torchOn = false;
+  $('#btnTorch').onclick = async () => {
+    try { torchOn = !torchOn; await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* no soportado */ }
+  };
+  function pauseScanner(p) {
+    if (!scanner) return;
+    try { p ? scanner.pause(true) : scanner.resume(); } catch (e) { /* estado no válido */ }
+  }
+  async function stopScanner() {
+    if (!scanner) return;
+    const s = scanner;
+    scanner = null;
+    try { await s.stop(); s.clear(); } catch (e) { /* ya detenido */ }
+    $('#scanner').hidden = true;
+    $('#btnScan').textContent = '📷 Escanear';
+    torchOn = false;
+  }
+
+  // =========================================================
+  // RESULTADOS
+  // =========================================================
+  $('#btnFinish').onclick = () => finishCount();
+
+  async function finishCount() {
+    if (!current.finishedAt) {
+      const pending = current.items.filter((i) => !qty(i)).length;
+      const r = await ask({ title: '¿Terminaste de contar?',
+        html: `<p>${pending ? `Hay <b>${pending}</b> productos sin contar; se tomarán como <b>no recibidos (0)</b>.` : 'Todos los productos tienen conteo.'}</p>
+          <p class="small muted">Al ver las diferencias el conteo queda cerrado.</p>`,
+        buttons: [{ label: 'Seguir contando', value: '' }, { label: 'Sí, ver diferencias', value: 'ok', cls: 'primary' }] });
+      if (r.value !== 'ok') return;
+      current.finishedAt = Date.now();
+      save();
+    }
+    renderResults();
+  }
+
+  function computeResults(o) {
+    const rows = o.items.map((i) => {
+      const contado = o.counts[i.id] || 0;
+      const dif = contado - i.cantidad;
+      let estado = 'OK';
+      if (dif < 0) estado = contado === 0 ? 'No llegó' : 'Faltante';
+      else if (dif > 0) estado = 'Sobrante';
+      return { codigo: i.codigo, producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
+    });
+    for (const x of o.extras) {
+      rows.push({ codigo: x.codigo, producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
+        estado: x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : 'No estaba en pedido' });
+    }
+    return rows;
+  }
+
+  function renderResults() {
+    show('results', current.nombre);
+    const rows = computeResults(current);
+    const diffs = rows.filter((r) => r.dif !== 0);
+    const falt = rows.filter((r) => r.dif < 0), sobr = rows.filter((r) => r.dif > 0);
+    const uFalt = -falt.reduce((s, r) => s + r.dif, 0), uSobr = sobr.reduce((s, r) => s + r.dif, 0);
+    const vFalt = -falt.reduce((s, r) => s + r.dif * r.precio, 0);
+    const ok = rows.length - diffs.length;
+
+    $('#summary').innerHTML = `
+      <div class="kpi ${diffs.length ? '' : 'good'}"><b>${ok}</b><span>Correctos</span></div>
+      <div class="kpi bad"><b>${uFalt}</b><span>Unid. faltantes (${falt.length} prod.)</span></div>
+      <div class="kpi warn"><b>${uSobr}</b><span>Unid. sobrantes (${sobr.length} prod.)</span></div>
+      <div class="kpi"><b>$ ${fmtMoney(vFalt)}</b><span>Valor faltante</span></div>
+      <p class="small muted full">Conteo cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.reopened ? ` · reabierto ${current.reopened} vez/veces` : ''}</p>`;
+    renderResultsTable(rows);
+  }
+
+  function renderResultsTable(rows) {
+    const only = $('#onlyDiffs').checked;
+    const list = (only ? rows.filter((r) => r.dif !== 0) : rows)
+      .sort((a, b) => (a.dif === 0) - (b.dif === 0) || a.producto.localeCompare(b.producto, 'es'));
+    if (!list.length) {
+      $('#resultsTable').innerHTML = '<div class="card center good-msg">✅ ¡Todo correcto! El pedido llegó completo.</div>';
+      return;
+    }
+    $('#resultsTable').innerHTML = `<div class="table-wrap card"><table class="results">
+      <thead><tr><th>Producto</th><th>Lote</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
+      <tbody>${list.map((r) => `<tr class="${r.dif < 0 ? 'neg' : r.dif > 0 ? 'pos' : ''}">
+        <td>${esc(r.producto)}<div class="small muted mono">${esc(r.codigo)}</div></td>
+        <td class="mono">${esc(r.lote)}</td>
+        <td class="num">${r.contado} und</td>
+        <td class="num">${r.esperado} und</td>
+        <td class="num"><b>${r.dif > 0 ? '+' : ''}${r.dif}</b></td>
+        <td><span class="tag ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+
+  $('#onlyDiffs').onchange = () => renderResultsTable(computeResults(current));
+  $('#btnBackToCount').onclick = () => startCount();
+  $('#btnPrint').onclick = () => window.print();
+
+  function exportRows() {
+    return computeResults(current).map((r) => ({
+      'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote, 'Precio': r.precio,
+      'Llegó': r.contado, 'Debería ser': r.esperado, 'Diferencia': r.dif, 'Valor diferencia': +(r.dif * r.precio).toFixed(2), 'Estado': r.estado,
+    }));
+  }
+  $('#btnExportXlsx').onclick = () => {
+    const ws = XLSX.utils.json_to_sheet(exportRows());
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
+    XLSX.writeFile(wb, safeName(current.nombre) + '-diferencias.xlsx');
+  };
+  $('#btnExportCsv').onclick = () => {
+    const rows = exportRows();
+    const head = Object.keys(rows[0] || {});
+    const cell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = '﻿' + [head.join(';'), ...rows.map((r) => head.map((h) => cell(r[h])).join(';'))].join('\r\n');
+    download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), safeName(current.nombre) + '-diferencias.csv');
+  };
+  $('#btnShareResults').onclick = async () => {
+    const diffs = computeResults(current).filter((r) => r.dif !== 0);
+    const lines = diffs.map((r) => `• ${r.producto}${r.lote ? ' (L ' + r.lote + ')' : ''}: llegó ${r.contado} und | debería ser ${r.esperado} und → ${r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif}${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}`);
+    const text = `Revisión ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
+      (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : '✅ Todo correcto, sin diferencias.');
+    if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  };
+
+  // ---------- Utilidades ----------
+  function download(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  const safeName = (s) => stripAccents(s || 'pedido').replace(/[^\w\-]+/g, '_').slice(0, 60);
+
+  // ---------- Arranque ----------
+  window.addEventListener('hashchange', checkHash);
+  if (!checkHash()) renderHome();
+
+  // Exponer funciones para pruebas
+  window.__app = { parseDelimited, rowsToItems, normCode, parseNum, computeResults, processCode: (c) => handleCode(c) };
+})();
