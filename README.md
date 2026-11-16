@@ -26,6 +26,28 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
    Se puede exportar a Excel/CSV, imprimir o compartir el resumen por WhatsApp. Si se reabre el conteo, queda registrado.
 
+## Usuarios e inicio de sesión
+
+- La primera vez la app pide crear el **administrador** (nombre, usuario y contraseña).
+- El administrador crea usuarios desde el menú de usuario → **Usuarios**, con dos roles:
+  - **Administrador:** carga pedidos, inventarios y el maestro, ve las cantidades, reabre conteos y administra usuarios.
+  - **Sucursal:** solo cuenta (sin ver las cantidades) y ve las diferencias al cerrar. Su nombre queda como "Contado por".
+- Las contraseñas se guardan cifradas (PBKDF2) en el equipo, nunca en texto.
+- Para usar los mismos usuarios y el maestro en otra tablet: menú → **Exportar configuración** y, en la otra tablet, **Importar configuración**.
+- Limitación: sin servidor, los usuarios viven en cada equipo. Sirve para identificar quién cuenta y limitar lo que ve cada uno en una tablet compartida, no como seguridad frente a alguien con conocimientos técnicos.
+
+## Maestro de productos
+
+Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Material*, *Texto breve de material*, *Unidad medida base*, *Código EAN/UPC*). Con el maestro, al escanear el código de barras de una caja la app sabe qué producto es, también en pedidos.
+
+## Inventarios
+
+1. **Nuevo inventario** → subir el **reporte de existencias** (PDF o Excel). La app lee la sucursal, la fecha y cada producto con su código, nombre, categoría y cantidad del sistema, y le agrega el código de barras desde el maestro.
+2. La sucursal cuenta **sin ver las cantidades del sistema**: escaneando, buscando por nombre o código de material, con filtro por categoría. Si escanea algo que no figura en el reporte, la app muestra el nombre desde el maestro y lo registra como sobrante.
+3. Al cerrar: **Contado vs Sistema** por producto (faltante, sobrante, no encontrado, no figura en sistema), con exportación a Excel (material, código de barras, categoría).
+
+Probado con el reporte real de existencias CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
+
 ## Evidencia con fotos
 
 <img src="docs/capturas/evidencia-dialogo.png" width="420"> <img src="docs/capturas/evidencia-diferencias.png" width="420">

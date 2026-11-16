@@ -287,5 +287,46 @@
     return items;
   }
 
-  global.Importar = { fromWord, fromPdf, fromImage, alignToHeader, looseItems, loadScript, prepareImage };
+  // ---------- Reporte de existencias (inventario) ----------
+  // Formato: encabezado con "SUCURSAL <código> <nombre>" y fecha; luego bloques por categoría
+  // ("1  DISPOSITIVOS MEDICOS") con filas Código | Nombre | Cantidad.
+  function parseExistencias(cellLines) {
+    let sucursal = '', fecha = '', categoria = '';
+    const items = [];
+    const RE_QTY = /^-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?$|^-?\d+(?:[.,]\d+)?$/;
+    for (const cells of cellLines) {
+      const texts = cells.map((c) => c.t.trim()).filter(Boolean);
+      if (!texts.length) continue;
+      const line = texts.join(' ');
+      if (!sucursal) {
+        const m = line.match(/SUCURSAL\s*:?\s*(.+?)(?:\s+P[AÁ]GINA\b.*)?$/i);
+        if (m) { sucursal = m[1].trim(); continue; }
+      }
+      if (!fecha) {
+        const m = line.match(/\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})\b/);
+        if (m) fecha = m[1];
+      }
+      if (/^c[oó]digo\b/i.test(texts[0]) || /productos fuera de cat/i.test(line) || /informaci[oó]n confidencial/i.test(line) ||
+          /^reporte\b/i.test(line) || /^p[aá]gina\b/i.test(line) || /farmacias|s\.a\.$/i.test(line) && texts.length < 3) continue;
+      // Categoría: número corto + texto en mayúsculas, sin cantidad al final.
+      if (texts.length <= 2 && /^\d{1,2}$/.test(texts[0]) && texts[1] && !RE_QTY.test(texts[1]) && texts[1] === texts[1].toUpperCase()) {
+        categoria = texts[1].replace(/\s+/g, ' ').trim();
+        continue;
+      }
+      const last = texts[texts.length - 1];
+      if (texts.length >= 3 && RE_QTY.test(last)) {
+        let code = texts[0];
+        const fuera = /^\*/.test(code);
+        code = code.replace(/^\*\s*/, '');
+        if (!/^[A-Z0-9][A-Z0-9\-\/.]{0,19}$/i.test(code)) continue;
+        const nombre = texts.slice(1, -1).join(' ').replace(/\s+/g, ' ').trim();
+        if (!nombre) continue;
+        const cantidad = parseFloat(last.replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')) || 0;
+        items.push({ sku: code, producto: nombre, cantidad, categoria, fueraCatalogo: fuera });
+      }
+    }
+    return { sucursal, fecha, items };
+  }
+
+  global.Importar = { fromWord, fromPdf, fromImage, alignToHeader, looseItems, loadScript, prepareImage, parseExistencias };
 })(window);

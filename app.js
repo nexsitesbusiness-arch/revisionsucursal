@@ -39,6 +39,11 @@
     return isNaN(n) ? 0 : n;
   }
 
+  // Textos según el tipo de documento: pedido (recepción) o inventario (existencias).
+  const T = (o) => (o && o.tipo === 'inventario'
+    ? { doc: 'inventario', Doc: 'Inventario', llego: 'Contado', debia: 'Sistema', noLlego: 'No encontrado', extra: 'No figura en sistema', contar: 'Contar inventario', ok: 'el conteo coincide con el sistema', cero: 'no encontrados (0)' }
+    : { doc: 'pedido', Doc: 'Pedido', llego: 'Llegó', debia: 'Debería ser', noLlego: 'No llegó', extra: 'No estaba en pedido', contar: 'Contar pedido', ok: 'el pedido llegó completo', cero: 'no recibidos (0)' });
+
   // ---------- Almacenamiento ----------
   let db = load();
   function load() {
@@ -55,15 +60,17 @@
   const getOrder = (id) => db.orders.find((o) => o.id === id);
 
   // ---------- Navegación ----------
-  let current = null; // pedido abierto
-  const views = ['home', 'load', 'order', 'count', 'results'];
+  let current = null; // pedido o inventario abierto
+  let me = null; // usuario con sesión iniciada
+  const isAdmin = () => !!me && me.rol === 'admin';
+  const views = ['login', 'home', 'load', 'order', 'count', 'results', 'users', 'catalog', 'inv'];
   function show(view, title) {
     views.forEach((v) => { $('#view-' + v).hidden = v !== view; });
     $('#title').textContent = title || '';
     if (view !== 'count') stopScanner();
     window.scrollTo(0, 0);
   }
-  $('#btnHome').onclick = () => renderHome();
+  $('#btnHome').onclick = () => { if (me) renderHome(); };
 
   // ---------- Diálogo ----------
   function ask({ title, html = '', buttons = [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] }) {
@@ -105,30 +112,32 @@
   function renderHome() {
     current = null;
     show('home');
+    $('#homeKicker').textContent = me ? (isAdmin() ? 'Central' : 'Sucursal') + ' · ' + me.nombre : 'Inicio';
     const st = db.orders.map(orderStatus);
     const open = st.filter((x) => x.key !== 'done').length;
     const done = st.filter((x) => x.key === 'done').length;
     const withDiffs = st.filter((x) => x.diffs > 0).length;
+    const nInv = db.orders.filter((o) => o.tipo === 'inventario').length;
     $('#homeStats').innerHTML = `
-      <div class="kpi"><div class="l">Pedidos</div><div class="v">${db.orders.length}</div><div class="s">en este equipo</div></div>
+      <div class="kpi"><div class="l">Documentos</div><div class="v">${db.orders.length}</div><div class="s">${db.orders.length - nInv} pedidos · ${nInv} inventarios</div></div>
       <div class="kpi"><div class="l">En revisión</div><div class="v">${open}</div><div class="s">abiertos</div></div>
       <div class="kpi ok"><div class="l">Cerrados</div><div class="v">${done}</div><div class="s">conteos terminados</div></div>
       <div class="kpi ${withDiffs ? 'bad' : ''}"><div class="l">Con diferencias</div><div class="v">${withDiffs}</div><div class="s">de ${done} cerrados</div></div>`;
 
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = `<div class="empty">Todavía no hay pedidos. Usa <b>Nuevo pedido</b> para cargar uno o abre el enlace que te enviaron.
-        <div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div></div>`;
-      $('#btnDemo').onclick = () => openOrder(createDemo().id);
+      list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre' : 'Abre'} el enlace o archivo que te enviaron.
+        ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
+      if ($('#btnDemo')) $('#btnDemo').onclick = () => openOrder(createDemo().id);
       return;
     }
     list.innerHTML = `<div class="table-wrap"><table class="orders">
-      <thead><tr><th>Pedido</th><th>Sucursal</th><th>Avance</th><th>Estado</th><th class="num">Fecha</th></tr></thead>
+      <thead><tr><th>Documento</th><th>Sucursal</th><th>Avance</th><th>Estado</th><th class="num">Fecha</th></tr></thead>
       <tbody>${db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
         const x = orderStatus(o);
         const pct = o.finishedAt ? 100 : (o.items.length ? Math.round((x.counted / o.items.length) * 100) : 0);
         return `<tr class="click" data-id="${o.id}">
-          <td><b>${esc(o.nombre || 'Pedido')}</b><div class="sub">${o.items.length} productos${o.contadoPor ? ' · contó ' + esc(o.contadoPor) : ''}</div></td>
+          <td><b>${esc(o.nombre || T(o).Doc)}</b><div class="sub"><span class="pill type">${T(o).Doc}</span> ${o.items.length} productos${o.contadoPor ? ' · contó ' + esc(o.contadoPor) : ''}</div></td>
           <td class="c-branch">${esc(o.sucursal || '—')}</td>
           <td class="c-progress"><span class="sub">${o.finishedAt ? 'Cerrado' : `${x.counted} de ${o.items.length}`}</span><div class="mini-bar"><span style="width:${pct}%"></span></div></td>
           <td class="c-state">${x.tag}</td>
@@ -429,8 +438,9 @@
     openOrder(o.id);
   };
 
-  function newOrder({ id, nombre, sucursal, creado, items, origen = 'central' }) {
-    return { id: id || uid(), nombre, sucursal, creado: creado || Date.now(), origen, items, counts: {}, extras: [], evid: {}, log: [], finishedAt: null, reopened: 0 };
+  function newOrder({ id, nombre, sucursal, creado, items, origen = 'central', tipo = 'pedido', fechaSistema = '' }) {
+    return { id: id || uid(), tipo, nombre, sucursal, fechaSistema, creado: creado || Date.now(), creadoPor: me ? me.nombre : '', origen, items,
+      counts: {}, extras: [], evid: {}, log: [], finishedAt: null, reopened: 0 };
   }
 
   // =========================================================
@@ -441,19 +451,20 @@
     if (!current) return renderHome();
     show('order', current.nombre);
     $('#orderTitle').textContent = current.nombre;
-    $('#orderMeta').textContent = `${current.sucursal ? current.sucursal + ' · ' : ''}${current.items.length} productos · creado ${fmtDate(current.creado)}`;
+    $('#orderMeta').textContent = `${T(current).Doc}${current.sucursal ? ' · ' + current.sucursal : ''}${current.fechaSistema ? ' · existencias al ' + current.fechaSistema : ''} · ${current.items.length} productos`;
+    $('#shareWhat').textContent = current.tipo === 'inventario' ? 'del sistema' : 'enviadas';
     const x = orderStatus(current);
     $('#orderProgress').textContent = current.finishedAt ? `Cerrado ${fmtDate(current.finishedAt)}${current.contadoPor ? ' · contó ' + current.contadoPor : ''}`
       : x.counted ? `${x.counted} de ${current.items.length} productos contados` : 'Aún sin contar';
     $('#orderBar').style.width = (current.finishedAt ? 100 : current.items.length ? (x.counted / current.items.length) * 100 : 0) + '%';
-    $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? ' Revisar conteo' : x.counted ? ' Seguir contando' : ' Contar pedido');
+    $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? ' Revisar conteo' : x.counted ? ' Seguir contando' : ' ' + T(current).contar);
     $('#shareInfo').textContent = '';
   }
 
   // El pedido viaja comprimido, así las cantidades no quedan a la vista.
   function exportPayload(o) {
-    const data = { v: 1, id: o.id, n: o.nombre, s: o.sucursal, c: o.creado,
-      i: o.items.map((i) => [i.codigo, i.producto, i.lote, i.precio, i.cantidad, i.vencimiento]) };
+    const data = { v: 1, id: o.id, n: o.nombre, s: o.sucursal, c: o.creado, t: o.tipo || 'pedido', f: o.fechaSistema || '',
+      i: o.items.map((i) => [i.codigo, i.producto, i.lote, i.precio, i.cantidad, i.vencimiento, i.sku || '', i.categoria || '']) };
     return LZString.compressToEncodedURIComponent(JSON.stringify(data));
   }
   function importPayload(str) {
@@ -461,9 +472,9 @@
     if (!d || d.v !== 1 || !Array.isArray(d.i)) throw new Error('inválido');
     const existing = getOrder(d.id);
     if (existing) { openOrder(existing.id); return; }
-    const o = newOrder({ id: d.id, nombre: d.n, sucursal: d.s, creado: d.c, origen: 'recibido',
-      items: d.i.map(([codigo, producto, lote, precio, cantidad, vencimiento]) =>
-        ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento })) });
+    const o = newOrder({ id: d.id, nombre: d.n, sucursal: d.s, creado: d.c, origen: 'recibido', tipo: d.t || 'pedido', fechaSistema: d.f || '',
+      items: d.i.map(([codigo, producto, lote, precio, cantidad, vencimiento, sku, categoria]) =>
+        ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento, sku: sku || '', categoria: categoria || '' })) });
     db.orders.push(o);
     save();
     openOrder(o.id);
@@ -471,7 +482,7 @@
 
   $('#btnShareLink').onclick = async () => {
     const url = location.origin + location.pathname + '#p=' + exportPayload(current);
-    const text = `Pedido "${current.nombre}" para revisar:`;
+    const text = `${T(current).Doc} "${current.nombre}" para contar:`;
     if (navigator.share) {
       try { await navigator.share({ title: current.nombre, text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }
@@ -484,7 +495,7 @@
     download(blob, safeName(current.nombre) + '.pedido');
   };
   $('#btnDeleteOrder').onclick = async () => {
-    const r = await ask({ title: '¿Eliminar este pedido?', html: '<p>Se borrará también el conteo.</p>',
+    const r = await ask({ title: `¿Eliminar este ${T(current).doc}?`, html: '<p>Se borrará también el conteo y sus fotos.</p>',
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
     Object.values(current.evid || {}).forEach((ev) => ev.fotos.forEach((fid) => Fotos.del(fid)));
@@ -498,6 +509,7 @@
   function checkHash() {
     const m = location.hash.match(/^#p=(.+)$/);
     if (!m) return false;
+    if (!me) return false; // se procesa después de iniciar sesión
     history.replaceState(null, '', location.pathname + location.search);
     try { importPayload(m[1]); return true; }
     catch (e) { alert('El enlace del pedido está incompleto o dañado.'); return false; }
@@ -624,6 +636,12 @@
   // =========================================================
   function startCount() {
     if (current.finishedAt) {
+      if (!isAdmin()) {
+        ask({ title: 'Este conteo ya fue terminado', html: '<p>Solo un administrador puede reabrirlo para corregir.</p>',
+          buttons: [{ label: 'Cerrar', value: '' }, { label: 'Ver diferencias', value: 'res', cls: 'primary' }] })
+          .then((r) => { if (r.value === 'res') renderResults(); });
+        return;
+      }
       ask({ title: 'Este conteo ya fue terminado', html: '<p>¿Quieres reabrirlo para corregir? Quedará registrado que se reabrió.</p>',
         buttons: [{ label: 'Ver diferencias', value: 'res' }, { label: 'Reabrir conteo', value: 'open', cls: 'primary' }] })
         .then((r) => {
@@ -633,8 +651,13 @@
       return;
     }
     show('count', current.nombre);
-    $('#countKicker').textContent = [current.sucursal, current.nombre].filter(Boolean).join(' · ');
+    $('#countKicker').textContent = [current.sucursal, current.tipo === 'inventario' && current.fechaSistema ? 'existencias al ' + current.fechaSistema : current.nombre].filter(Boolean).join(' · ');
+    $('#countTitle').textContent = current.tipo === 'inventario' ? 'Conteo del inventario' : 'Conteo del pedido';
     $('#search').value = '';
+    const cats = [...new Set(current.items.map((i) => i.categoria).filter(Boolean))].sort();
+    const sel = $('#catFilter');
+    sel.hidden = cats.length < 2;
+    sel.innerHTML = '<option value="">Todas las categorías</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join('');
     renderCount();
   }
 
@@ -642,14 +665,15 @@
 
   function itemMatches(i, q) {
     if (!q) return true;
-    const hay = normText(`${i.producto} ${i.codigo} ${i.lote}`);
+    const hay = i._hay || (i._hay = normText(`${i.producto} ${i.codigo} ${i.lote} ${i.sku || ''}`));
     return q.split(/\s+/).every((t) => hay.includes(t));
   }
 
   function renderCount() {
     const q = normText($('#search').value);
     const onlyPending = $('#onlyPending').checked;
-    let items = current.items.filter((i) => itemMatches(i, q) && (!onlyPending || !qty(i)));
+    const cat = $('#catFilter').hidden ? '' : $('#catFilter').value;
+    let items = current.items.filter((i) => itemMatches(i, q) && (!onlyPending || !qty(i)) && (!cat || i.categoria === cat));
     items.sort((a, b) => a.producto.localeCompare(b.producto, 'es'));
     const list = $('#countList');
     list.innerHTML = items.length ? items.map(itemHtml).join('')
@@ -661,8 +685,10 @@
   function itemHtml(i) {
     const n = qty(i);
     const meta = [
+      i.sku && `<b class="mono">${esc(i.sku)}</b>`,
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
+      i.categoria && `<span class="opt">${esc(i.categoria)}</span>`,
       i.vencimiento && `<span class="opt">Vence ${esc(i.vencimiento)}</span>`,
       i.precio ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
     ].filter(Boolean).join('<span class="dot"> · </span>');
@@ -683,7 +709,7 @@
     const done = current.items.filter((i) => qty(i) > 0).length;
     const units = Object.values(current.counts).reduce((s, n) => s + n, 0) + current.extras.reduce((s, e) => s + e.cantidad, 0);
     $('#progressBar').style.width = (total ? (done / total) * 100 : 0) + '%';
-    $('#progressText').textContent = `${done} de ${total} productos · ${units} unid.`;
+    $('#progressText').textContent = `${done.toLocaleString('es')} de ${total.toLocaleString('es')} productos · ${units.toLocaleString('es')} unid.`;
   }
 
   function updateItemRow(item) {
@@ -708,7 +734,9 @@
     renderProgress();
   }
 
-  $('#search').oninput = () => renderCount();
+  let searchTimer;
+  $('#search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderCount, current && current.items.length > 300 ? 150 : 0); };
+  $('#catFilter').onchange = () => renderCount();
   $('#onlyPending').onchange = () => renderCount();
 
   $('#countList').addEventListener('click', (e) => {
@@ -745,10 +773,10 @@
   };
 
   // ---------- Productos que no están en el pedido / lote distinto ----------
-  function addExtra({ codigo = '', producto, lote = '', motivo }, amount) {
+  function addExtra({ codigo = '', sku = '', producto, lote = '', motivo }, amount) {
     const key = normCode(codigo) + '|' + normLote(lote) + '|' + normText(producto);
     let ex = current.extras.find((x) => normCode(x.codigo) + '|' + normLote(x.lote) + '|' + normText(x.producto) === key);
-    if (!ex) { ex = { id: uid(), codigo, producto, lote, motivo, cantidad: 0 }; current.extras.push(ex); }
+    if (!ex) { ex = { id: uid(), codigo, sku, producto, lote, motivo, cantidad: 0 }; current.extras.push(ex); }
     current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
     current.startedAt = current.startedAt || Date.now();
     ex.cantidad += amount;
@@ -802,7 +830,7 @@
         <label>Cantidad<input name="cantidad" type="number" min="1" value="1"></label>`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Agregar', value: 'ok', cls: 'primary' }] });
     if (r.value !== 'ok' || !r.fields.producto.trim()) return;
-    addExtra({ codigo: r.fields.codigo.trim(), producto: r.fields.producto.trim(), lote: r.fields.lote.trim(), motivo: 'No estaba en el pedido' },
+    addExtra({ codigo: r.fields.codigo.trim(), producto: r.fields.producto.trim(), lote: r.fields.lote.trim(), motivo: T(current).extra },
       Math.max(1, parseNum(r.fields.cantidad)));
   };
 
@@ -844,18 +872,22 @@
     const gs1 = GS1.parse(raw);
     const code = normCode(gs1 ? gs1.gtin : raw);
     const scannedLote = gs1 ? gs1.lote : '';
-    const matches = current.items.filter((i) => i.codigo && normCode(i.codigo) === code);
+    let matches = current.items.filter((i) => (i.codigo && normCode(i.codigo) === code) || (i.sku && normCode(i.sku) === code));
+    const cat = catalogFind(code);
+    if (!matches.length && cat) matches = current.items.filter((i) => (i.sku && normCode(i.sku) === normCode(cat.sku)) || (i.codigo && cat.ean && normCode(i.codigo) === normCode(cat.ean)));
 
     if (!matches.length) {
       beep(false);
-      const r = await ask({ title: 'Código no está en el pedido',
-        html: `<p class="mono">${esc(raw)}</p>${scannedLote ? `<p>Lote leído: <b class="mono">${esc(scannedLote)}</b></p>` : ''}
-          <p>Si llegó en la cubeta, regístralo como sobrante.</p>
-          <label>Nombre del producto<input name="producto" placeholder="Ej: Ibuprofeno 400mg"></label>`,
+      const t = T(current);
+      const r = await ask({ title: `Código no está en el ${t.doc}`,
+        html: `<p class="mono">${esc(raw)}</p>${cat ? `<p>Según el maestro es <b>${esc(cat.nombre)}</b> (material <span class="mono">${esc(cat.sku)}</span>).</p>` : ''}
+          ${scannedLote ? `<p>Lote leído: <b class="mono">${esc(scannedLote)}</b></p>` : ''}
+          <p>${current.tipo === 'inventario' ? 'Si el producto está en la sucursal, regístralo como sobrante.' : 'Si llegó en la cubeta, regístralo como sobrante.'}</p>
+          <label>Nombre del producto<input name="producto" placeholder="Ej: Ibuprofeno 400mg" value="${esc(cat ? cat.nombre : '')}"></label>`,
         buttons: [{ label: 'Ignorar', value: '' }, { label: 'Registrar sobrante', value: 'ok', cls: 'primary' }] });
       if (r.value === 'ok') {
-        addExtra({ codigo: gs1 ? gs1.gtin : raw, producto: r.fields.producto.trim() || 'Producto sin nombre (' + raw + ')',
-          lote: scannedLote, motivo: 'No estaba en el pedido' }, amount);
+        addExtra({ codigo: cat && cat.ean ? cat.ean : (gs1 ? gs1.gtin : raw), sku: cat ? cat.sku : '', producto: r.fields.producto.trim() || 'Producto sin nombre (' + raw + ')',
+          lote: scannedLote, motivo: t.extra }, amount);
         flash(`${ic('alert')}<span>Registrado como sobrante</span>`, 'warn');
       }
       return;
@@ -909,7 +941,8 @@
     const v = $('#search').value.trim();
     if (!v) return;
     const isCode = /^[\]\(]?[\w\u001d()\]]{6,}$/.test(v) && /\d{6,}/.test(v);
-    const exact = current.items.some((i) => i.codigo && normCode(i.codigo) === normCode(GS1.parse(v)?.gtin || v));
+    const c = normCode(GS1.parse(v)?.gtin || v);
+    const exact = current.items.some((i) => (i.codigo && normCode(i.codigo) === c) || (i.sku && normCode(i.sku) === c)) || !!catalogFind(c);
     if (isCode || exact) {
       e.preventDefault();
       $('#search').value = '';
@@ -979,8 +1012,8 @@
     if (!current.finishedAt) {
       const pending = current.items.filter((i) => !qty(i)).length;
       const r = await ask({ title: '¿Terminaste de contar?',
-        html: `<p>${pending ? `Hay <b>${pending}</b> productos sin contar; se tomarán como <b>no recibidos (0)</b>.` : 'Todos los productos tienen conteo.'}</p>
-          <label>Contado por<input name="por" placeholder="Nombre de quien contó" value="${esc(lastPerson())}"></label>
+        html: `<p>${pending ? `Hay <b>${pending}</b> productos sin contar; se tomarán como <b>${T(current).cero}</b>.` : 'Todos los productos tienen conteo.'}</p>
+          <label>Contado por<input name="por" placeholder="Nombre de quien contó" value="${esc(me ? me.nombre : lastPerson())}" ${me ? 'readonly' : ''}></label>
           <p class="small muted">Al ver las diferencias el conteo queda cerrado.</p>`,
         buttons: [{ label: 'Seguir contando', value: '' }, { label: 'Sí, ver diferencias', value: 'ok', cls: 'primary' }] });
       if (r.value !== 'ok') return;
@@ -998,17 +1031,18 @@
   const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 
   function computeResults(o) {
+    const t = T(o);
     const rows = o.items.map((i) => {
       const contado = o.counts[i.id] || 0;
       const dif = contado - i.cantidad;
       let estado = 'OK';
-      if (dif < 0) estado = contado === 0 ? 'No llegó' : 'Faltante';
+      if (dif < 0) estado = contado === 0 ? t.noLlego : 'Faltante';
       else if (dif > 0) estado = 'Sobrante';
-      return { id: i.id, codigo: i.codigo, producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
+      return { id: i.id, codigo: i.codigo, sku: i.sku || '', categoria: i.categoria || '', producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
     });
     for (const x of o.extras) {
-      rows.push({ id: x.id, codigo: x.codigo, producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
-        estado: x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : 'No estaba en pedido' });
+      rows.push({ id: x.id, codigo: x.codigo, sku: x.sku || '', categoria: '', producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
+        estado: x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : t.extra });
     }
     return rows;
   }
@@ -1027,15 +1061,17 @@
     $('#summary').innerHTML = `
       <div class="page-head">
         <div>
-          <span class="kicker">${esc(current.sucursal || 'Sucursal')} · Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
+          <span class="kicker">${T(current).Doc} · ${esc(current.sucursal || 'Sucursal')}${current.fechaSistema ? ' · existencias al ' + esc(current.fechaSistema) : ''} · Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
           <h2 class="page-title">Diferencias · ${esc(current.nombre)}</h2>
         </div>
       </div>
       <div class="kpis five">
-        <div class="kpi ${diffs.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok} de ${rows.length} líneas correctas</div><div class="meter"><span style="width:${pct}%"></span></div></div>
-        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${uFalt}</div><div class="s">unid. · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</div></div>
-        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${uSobr}</div><div class="s">unid. · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</div></div>
-        <div class="kpi"><div class="l">Valor faltante</div><div class="v">$ ${fmtMoney(vFalt)}</div><div class="s">a precio del pedido</div></div>
+        <div class="kpi ${diffs.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok.toLocaleString('es')} de ${rows.length.toLocaleString('es')} líneas correctas</div><div class="meter"><span style="width:${pct}%"></span></div></div>
+        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${uFalt.toLocaleString('es')}</div><div class="s">unid. · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</div></div>
+        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${uSobr.toLocaleString('es')}</div><div class="s">unid. · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</div></div>
+        ${current.tipo === 'inventario'
+          ? `<div class="kpi"><div class="l">Unidades</div><div class="v">${rows.reduce((s, r) => s + r.contado, 0).toLocaleString('es')}</div><div class="s">contadas de ${rows.reduce((s, r) => s + r.esperado, 0).toLocaleString('es')} en sistema</div></div>`
+          : `<div class="kpi"><div class="l">Valor faltante</div><div class="v">$ ${fmtMoney(vFalt)}</div><div class="s">a precio del pedido</div></div>`}
         <div class="kpi"><div class="l">Tiempo de conteo</div><div class="v">${dur}</div><div class="s">primer registro → cierre</div></div>
       </div>`;
     renderResultsTable(rows);
@@ -1046,13 +1082,13 @@
     const list = (only ? rows.filter((r) => r.dif !== 0 || evOf(current, r.id)) : rows)
       .sort((a, b) => (a.dif === 0) - (b.dif === 0) || a.producto.localeCompare(b.producto, 'es'));
     if (!list.length) {
-      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} Todo correcto: el pedido llegó completo.</div>`;
+      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} Todo correcto: ${T(current).ok}.</div>`;
       return;
     }
     $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
-      <thead><tr><th>Producto</th><th class="num">Llegó</th><th class="num">Debería ser</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
+      <thead><tr><th>Producto</th><th class="num">${T(current).llego}</th><th class="num">${T(current).debia}</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
       <tbody>${list.map((r) => `<tr data-rid="${r.id}">
-        <td><b>${esc(r.producto)}</b><div class="sub"><span class="mono">${esc(r.codigo)}</span>${r.lote ? ` · Lote <span class="mono">${esc(r.lote)}</span>` : ''}</div>${evHtml(r.id)}</td>
+        <td><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>${evHtml(r.id)}</td>
         <td class="num">${r.contado} und</td>
         <td class="num">${r.esperado} und</td>
         <td class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif}</td>
@@ -1081,17 +1117,23 @@
   $('#btnPrint').onclick = () => window.print();
 
   function exportRows() {
-    return computeResults(current).map((r) => ({
-      'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote, 'Precio': r.precio,
-      'Llegó': r.contado, 'Debería ser': r.esperado, 'Diferencia': r.dif, 'Valor diferencia': +(r.dif * r.precio).toFixed(2), 'Estado': r.estado,
-      'Motivo': evOf(current, r.id)?.motivo || '', 'Nota': evOf(current, r.id)?.nota || '', 'Fotos': evOf(current, r.id)?.fotos.length || 0,
-    }));
+    const inv = current.tipo === 'inventario';
+    const t = T(current);
+    return computeResults(current).map((r) => {
+      const ev = evOf(current, r.id);
+      const base = inv
+        ? { 'Material': r.sku, 'Código de barras': r.codigo, 'Producto': r.producto, 'Categoría': r.categoria }
+        : { 'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote, 'Precio': r.precio };
+      return Object.assign(base, { [t.llego]: r.contado, [t.debia]: r.esperado, 'Diferencia': r.dif },
+        inv ? {} : { 'Valor diferencia': +(r.dif * r.precio).toFixed(2) },
+        { 'Estado': r.estado, 'Motivo': ev?.motivo || '', 'Nota': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 });
+    });
   }
   $('#btnExportXlsx').onclick = () => {
     const ws = XLSX.utils.json_to_sheet(exportRows());
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
-    const info = [['Pedido', current.nombre], ['Sucursal', current.sucursal || ''], ['Contado por', current.contadoPor || ''],
+    const info = [[T(current).Doc, current.nombre], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Existencias al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
       ['Veces reabierto', current.reopened || 0]];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');
@@ -1109,11 +1151,11 @@
     const lines = rows.map((r) => {
       const ev = evOf(current, r.id);
       const dif = r.dif === 0 ? 'correcto' : r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif;
-      return `• ${r.producto}${r.lote ? ' (L ' + r.lote + ')' : ''}: llegó ${r.contado} und | debería ser ${r.esperado} und → ${dif}` +
+      return `• ${r.producto}${r.sku ? ' [' + r.sku + ']' : ''}${r.lote ? ' (L ' + r.lote + ')' : ''}: ${T(current).llego.toLowerCase()} ${r.contado} und | ${T(current).debia.toLowerCase()} ${r.esperado} und → ${dif}` +
         `${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}${ev && ev.motivo ? ' — ' + ev.motivo : ''}${ev && ev.nota ? ': ' + ev.nota : ''}`;
     });
     const nFotos = rows.reduce((s, r) => s + (evOf(current, r.id)?.fotos.length || 0), 0);
-    const text = `Revisión ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
+    const text = `${current.tipo === 'inventario' ? 'Inventario' : 'Revisión'} ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
       (current.contadoPor ? `Contó: ${current.contadoPor}\n` : '') +
       (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : 'Todo correcto, sin diferencias.');
     // Adjunta las fotos cuando el equipo lo permite (WhatsApp, correo, etc.).
@@ -1137,6 +1179,426 @@
     window.open('https://wa.me/?text=' + encodeURIComponent(text + (nFotos ? `\n(${nFotos} fotos guardadas en la tablet)` : '')), '_blank');
   };
 
+
+  // =========================================================
+  // USUARIOS Y SESIÓN
+  // Las contraseñas se guardan cifradas (PBKDF2) en este equipo; nunca en texto.
+  // =========================================================
+  const USERS_KEY = 'revision-usuarios-v1';
+  const SESSION_KEY = 'revision-sesion-v1';
+  let users = loadJSON(USERS_KEY, []);
+  function loadJSON(key, def) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? def; } catch (e) { return def; }
+  }
+  function saveUsers() { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
+  const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  async function hashPass(pass, salt) {
+    if (!crypto.subtle) throw new Error('Este navegador no permite guardar contraseñas de forma segura (abre la app con https).');
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 120000, hash: 'SHA-256' }, key, 256);
+    return toB64(bits);
+  }
+  async function makeUser({ nombre, usuario, pass, rol = 'sucursal', sucursal = '' }) {
+    const salt = uid() + uid();
+    return { id: uid(), nombre: nombre.trim(), usuario: usuario.trim().toLowerCase(), rol, sucursal: sucursal.trim(), salt, hash: await hashPass(pass, salt), creado: Date.now() };
+  }
+  const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  const rolName = (r) => (r === 'admin' ? 'Administrador' : 'Sucursal');
+
+  function setSession(u) {
+    me = u;
+    try { if (u) localStorage.setItem(SESSION_KEY, u.id); else localStorage.removeItem(SESSION_KEY); } catch (e) { /* sin almacenamiento */ }
+    document.body.classList.toggle('role-sucursal', !!u && u.rol !== 'admin');
+    const b = $('#btnUser');
+    b.hidden = !u;
+    if (u) b.innerHTML = `<span class="avatar">${esc(initials(u.nombre))}</span><span class="uname">${esc(u.nombre)}</span>`;
+  }
+
+  function showLogin() {
+    setSession(null);
+    current = null;
+    const setup = !users.length;
+    show('login');
+    $('#loginTitle').textContent = setup ? 'Configurar la app' : 'Iniciar sesión';
+    $('#loginSub').textContent = setup ? 'Crea el usuario administrador. Con él podrás crear los usuarios de cada sucursal.' : 'Ingresa con tu usuario y contraseña.';
+    $('#setupFields').hidden = !setup;
+    $('#setupFields2').hidden = !setup;
+    $('#setupImport').hidden = !setup;
+    $('#btnLoginText').textContent = setup ? 'Crear administrador y entrar' : 'Entrar';
+    $('#loginPass').autocomplete = setup ? 'new-password' : 'current-password';
+    $('#loginError').hidden = true;
+    $('#loginForm').reset();
+    $('#loginDemo').hidden = !window.REVISION_DEMO;
+    $('#loginDemo').innerHTML = 'Demo: administrador <b>admin</b> / <b>admin123</b> · sucursal <b>renca</b> / <b>1234</b>';
+    setTimeout(() => (setup ? $('#setupNombre') : $('#loginUser')).focus(), 50);
+  }
+  function loginError(msg) { const e = $('#loginError'); e.textContent = msg; e.hidden = false; }
+
+  $('#loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const usuario = $('#loginUser').value.trim().toLowerCase();
+    const pass = $('#loginPass').value;
+    const btn = $('#btnLogin');
+    btn.disabled = true;
+    try {
+      if (!users.length) {
+        const nombre = $('#setupNombre').value.trim();
+        if (!nombre || !usuario) return loginError('Completa el nombre y el usuario.');
+        if (pass.length < 6) return loginError('La contraseña debe tener al menos 6 caracteres.');
+        if (pass !== $('#setupPass2').value) return loginError('Las contraseñas no coinciden.');
+        const u = await makeUser({ nombre, usuario, pass, rol: 'admin' });
+        users.push(u);
+        saveUsers();
+        return afterLogin(u);
+      }
+      const u = users.find((x) => x.usuario === usuario);
+      if (!u || (await hashPass(pass, u.salt)) !== u.hash) return loginError('Usuario o contraseña incorrectos.');
+      afterLogin(u);
+    } catch (err) { loginError(err.message); }
+    finally { btn.disabled = false; }
+  };
+
+  function afterLogin(u) {
+    setSession(u);
+    if (!checkHash()) renderHome();
+  }
+
+  // ---------- Menú de usuario ----------
+  $('#btnUser').onclick = async () => {
+    if (!me) return;
+    const opts = [
+      ...(isAdmin() ? [['users', 'users', 'Usuarios'], ['catalog', 'list', 'Maestro de productos'], ['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
+      ['pass', 'lock', 'Cambiar mi contraseña'], ['logout', 'logout', 'Cerrar sesión'],
+    ];
+    const r = await ask({ title: 'Mi cuenta',
+      html: `<div class="menu-who"><span class="avatar">${esc(initials(me.nombre))}</span><div><b>${esc(me.nombre)}</b><div class="small muted">${esc(me.usuario)} · ${rolName(me.rol)}${me.sucursal ? ' · ' + esc(me.sucursal) : ''}</div></div></div>
+        <div class="menu-list">${opts.map(([v, i, l]) => `<button class="btn" value="${v}">${ic(i)} ${l}</button>`).join('')}</div>`,
+      buttons: [{ label: 'Cerrar', value: '' }] });
+    if (r.value === 'logout') showLogin();
+    else if (r.value === 'users') renderUsers();
+    else if (r.value === 'catalog') renderCatalog();
+    else if (r.value === 'export') exportConfig();
+    else if (r.value === 'import') pickFile('.json', (f) => importConfig(f));
+    else if (r.value === 'pass') changePassword(me);
+  };
+
+  function pickFile(accept, cb) {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = accept;
+    inp.onchange = () => { if (inp.files[0]) cb(inp.files[0]); };
+    inp.click();
+  }
+
+  async function changePassword(u, byAdmin = false) {
+    const r = await ask({ title: byAdmin ? `Nueva contraseña para ${u.nombre}` : 'Cambiar mi contraseña',
+      html: `${byAdmin ? '' : '<label>Contraseña actual<input name="actual" type="password" autocomplete="current-password"></label>'}
+        <label>Nueva contraseña<input name="nueva" type="password" autocomplete="new-password"></label>
+        <label>Repite la nueva contraseña<input name="nueva2" type="password" autocomplete="new-password"></label>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
+    if (r.value !== 'ok') return;
+    const f = r.fields;
+    if (!byAdmin && (await hashPass(f.actual, u.salt)) !== u.hash) return info('No se cambió', 'La contraseña actual no es correcta.');
+    if (f.nueva.length < 4) return info('No se cambió', 'La nueva contraseña debe tener al menos 4 caracteres.');
+    if (f.nueva !== f.nueva2) return info('No se cambió', 'Las contraseñas no coinciden.');
+    u.salt = uid() + uid();
+    u.hash = await hashPass(f.nueva, u.salt);
+    saveUsers();
+    info('Contraseña actualizada', byAdmin ? `${esc(u.nombre)} ya puede entrar con la nueva contraseña.` : 'Usa la nueva contraseña la próxima vez que entres.');
+  }
+  const info = (title, html) => ask({ title, html: `<p>${html}</p>`, buttons: [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] });
+
+  // ---------- Administración de usuarios ----------
+  function renderUsers() {
+    if (!isAdmin()) return renderHome();
+    show('users', 'Usuarios');
+    $('#usersList').innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Sucursal</th><th></th></tr></thead>
+      <tbody>${users.map((u) => `<tr data-uid="${u.id}">
+        <td><b>${esc(u.nombre)}</b>${u.id === me.id ? ' <span class="pill">tú</span>' : ''}</td>
+        <td class="mono">${esc(u.usuario)}</td>
+        <td><span class="pill ${u.rol === 'admin' ? 'type' : ''}">${rolName(u.rol)}</span></td>
+        <td>${esc(u.sucursal || '—')}</td>
+        <td><div class="row-actions">
+          <button class="btn sm ghost" data-uact="edit">${ic('edit')} Editar</button>
+          <button class="btn sm ghost" data-uact="pass">${ic('lock')} Contraseña</button>
+          ${u.id !== me.id ? `<button class="btn sm ghost danger" data-uact="del">${ic('trash')}</button>` : ''}
+        </div></td></tr>`).join('')}</tbody></table></div>`;
+  }
+  $('#btnNewUser').onclick = () => editUser(null);
+  $('#usersList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-uact]');
+    if (!b) return;
+    const u = users.find((x) => x.id === b.closest('tr').dataset.uid);
+    if (!u) return;
+    if (b.dataset.uact === 'edit') editUser(u);
+    else if (b.dataset.uact === 'pass') changePassword(u, true);
+    else if (b.dataset.uact === 'del') deleteUser(u);
+  });
+  async function editUser(u) {
+    const r = await ask({ title: u ? 'Editar usuario' : 'Nuevo usuario',
+      html: `<label>Nombre completo<input name="nombre" value="${esc(u ? u.nombre : '')}"></label>
+        <label>Usuario (para entrar)<input name="usuario" value="${esc(u ? u.usuario : '')}" autocapitalize="none" spellcheck="false"></label>
+        <label>Rol<select name="rol"><option value="sucursal" ${u && u.rol === 'sucursal' ? 'selected' : ''}>Sucursal: solo cuenta</option><option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: todo</option></select></label>
+        <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
+        ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
+    if (r.value !== 'ok') return;
+    const f = r.fields;
+    const usuario = f.usuario.trim().toLowerCase();
+    if (!f.nombre.trim() || !usuario) return info('No se guardó', 'Completa el nombre y el usuario.');
+    if (!/^[a-z0-9._\-@]+$/.test(usuario)) return info('No se guardó', 'El usuario solo puede tener letras sin tilde, números, punto, guion o @.');
+    if (users.some((x) => x.usuario === usuario && x !== u)) return info('No se guardó', `Ya existe el usuario <b>${esc(usuario)}</b>.`);
+    if (u) {
+      if (u.id === me.id && f.rol !== 'admin') return info('No se guardó', 'No puedes quitarte el rol de administrador a ti mismo.');
+      Object.assign(u, { nombre: f.nombre.trim(), usuario, rol: f.rol, sucursal: f.sucursal.trim() });
+      if (u.id === me.id) setSession(u);
+    } else {
+      if ((f.pass || '').length < 4) return info('No se guardó', 'La contraseña inicial debe tener al menos 4 caracteres.');
+      users.push(await makeUser({ nombre: f.nombre, usuario, pass: f.pass, rol: f.rol, sucursal: f.sucursal }));
+    }
+    saveUsers();
+    renderUsers();
+  }
+  async function deleteUser(u) {
+    if (u.rol === 'admin' && users.filter((x) => x.rol === 'admin').length < 2) return info('No se eliminó', 'Debe quedar al menos un administrador.');
+    const r = await ask({ title: `¿Eliminar a ${u.nombre}?`, html: '<p>Ya no podrá entrar en este equipo. Sus conteos se mantienen.</p>',
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
+    if (r.value !== 'del') return;
+    users = users.filter((x) => x !== u);
+    saveUsers();
+    renderUsers();
+  }
+
+  // ---------- Exportar / importar configuración (usuarios + maestro) ----------
+  function exportConfig() {
+    const data = { tipo: 'revision-config', v: 1, exportado: Date.now(), usuarios: users, catalogo: catalog };
+    download(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'configuracion-revision.json');
+  }
+  async function importConfig(file) {
+    let d;
+    try { d = JSON.parse(await file.text()); } catch (e) { d = null; }
+    if (!d || d.tipo !== 'revision-config' || !Array.isArray(d.usuarios)) return info('No se pudo importar', 'El archivo no es una configuración de esta app.');
+    for (const u of d.usuarios) {
+      if (!u || !u.usuario || !u.hash || !u.salt) continue;
+      const i = users.findIndex((x) => x.usuario === u.usuario);
+      if (i >= 0) users[i] = u; else users.push(u);
+    }
+    saveUsers();
+    if (d.catalogo && Array.isArray(d.catalogo.items) && d.catalogo.items.length) setCatalog(d.catalogo);
+    await info('Configuración importada', `${d.usuarios.length} usuarios${d.catalogo && d.catalogo.items ? ' y ' + d.catalogo.items.length + ' productos del maestro' : ''}. ${me ? '' : 'Ahora inicia sesión.'}`);
+    if (me) renderHome(); else showLogin();
+  }
+  $('#fileConfigSetup').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importConfig(f); };
+
+  // =========================================================
+  // MAESTRO DE PRODUCTOS
+  // Relaciona código de material con código de barras (EAN).
+  // =========================================================
+  const CATALOG_KEY = 'revision-catalogo-v1';
+  let catalog = loadJSON(CATALOG_KEY, { items: [] });
+  let catIdx = null;
+  function setCatalog(c) {
+    catalog = c;
+    catIdx = null;
+    try { localStorage.setItem(CATALOG_KEY, JSON.stringify(c)); }
+    catch (e) { info('No se pudo guardar el maestro', 'No hay espacio suficiente en este equipo.'); }
+  }
+  function catalogIndex() {
+    if (!catIdx) {
+      catIdx = { ean: new Map(), sku: new Map() };
+      for (const p of catalog.items || []) {
+        if (p.ean) catIdx.ean.set(normCode(p.ean), p);
+        if (p.sku) catIdx.sku.set(normCode(p.sku), p);
+      }
+    }
+    return catIdx;
+  }
+  // Busca por código de barras o por código de material.
+  const catalogFind = (code) => { const x = catalogIndex(); return x.ean.get(code) || x.sku.get(code) || null; };
+
+  const CAT_RULES = [
+    ['ean', /ean|upc|barra|gtin/],
+    ['sku', /^material$|^sku|cod.*material|material.*cod|^codigo$|^cod\.?$|^articulo$/],
+    ['nombre', /texto|descrip|nombre|producto/],
+    ['unidad', /unidad|^um$|medida/],
+    ['grupo', /nivel|grupo|categ|familia|linea/],
+  ];
+  function parseCatalogRows(rows) {
+    let hIdx = -1, map = null;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const m = {};
+      rows[i].forEach((h, k) => {
+        const n = normText(h);
+        for (const [key, re] of CAT_RULES) if (m[key] === undefined && n && re.test(n)) { m[key] = k; break; }
+      });
+      if (m.nombre !== undefined && (m.sku !== undefined || m.ean !== undefined)) { hIdx = i; map = m; break; }
+    }
+    if (!map) throw new Error('No encontré las columnas del maestro. Debe tener al menos Material (o código de barras) y el nombre del producto.');
+    const items = [];
+    for (const r of rows.slice(hIdx + 1)) {
+      const nombre = String(r[map.nombre] ?? '').trim();
+      if (!nombre) continue;
+      const ean = map.ean !== undefined ? String(r[map.ean] ?? '').replace(/\.0+$/, '').trim() : '';
+      items.push({ sku: map.sku !== undefined ? String(r[map.sku] ?? '').trim() : '', nombre, ean: /^\d{6,14}$/.test(ean) ? ean : '',
+        unidad: map.unidad !== undefined ? String(r[map.unidad] ?? '').trim() : '', grupo: map.grupo !== undefined ? String(r[map.grupo] ?? '').trim() : '' });
+    }
+    return items;
+  }
+
+  function renderCatalog() {
+    if (!isAdmin()) return renderHome();
+    show('catalog', 'Maestro de productos');
+    const items = catalog.items || [];
+    $('#catalogStats').innerHTML = `
+      <div class="kpi"><div class="l">Productos</div><div class="v">${items.length.toLocaleString('es')}</div><div class="s">en el maestro</div></div>
+      <div class="kpi ok"><div class="l">Con código de barras</div><div class="v">${items.filter((p) => p.ean).length.toLocaleString('es')}</div><div class="s">se pueden escanear</div></div>
+      <div class="kpi ${items.length && items.some((p) => !p.ean) ? 'warn' : ''}"><div class="l">Sin código de barras</div><div class="v">${items.filter((p) => !p.ean).length.toLocaleString('es')}</div><div class="s">se buscan por nombre</div></div>
+      <div class="kpi"><div class="l">Actualizado</div><div class="v" style="font-size:18px">${catalog.actualizado ? fmtDate(catalog.actualizado) : '—'}</div><div class="s">${esc(catalog.archivo || 'sin cargar')}</div></div>`;
+    renderCatalogList();
+  }
+  function renderCatalogList() {
+    const items = catalog.items || [];
+    if (!items.length) { $('#catalogList').innerHTML = '<div class="empty">Aún no hay maestro. Sube el Excel con los productos (Material, Texto breve de material, Código EAN/UPC).</div>'; return; }
+    const q = normText($('#catalogSearch').value);
+    const found = q ? items.filter((p) => normText(`${p.nombre} ${p.sku} ${p.ean}`).includes(q)) : items;
+    $('#catalogList').innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Material</th><th>Producto</th><th>Código de barras</th><th>Unidad</th></tr></thead>
+      <tbody>${found.slice(0, 150).map((p) => `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.nombre)}</td><td class="mono">${esc(p.ean) || '<span class="muted">—</span>'}</td><td>${esc(p.unidad)}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted" style="padding:10px 14px;margin:0">${found.length > 150 ? `Mostrando 150 de ${found.length.toLocaleString('es')}. Usa el buscador para encontrar otros.` : `${found.length} productos`}</p>`;
+  }
+  $('#catalogSearch').oninput = () => renderCatalogList();
+  $('#fileCatalog').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const st = $('#catalogStatus');
+    try {
+      const rows = await readSheetRows(f);
+      const items = parseCatalogRows(rows);
+      if (!items.length) throw new Error('El archivo no tiene productos.');
+      setCatalog({ items, actualizado: Date.now(), archivo: f.name });
+      renderCatalog();
+      st.className = 'load-status ok'; st.hidden = false;
+      st.innerHTML = `${ic('check')}<span>Maestro cargado: ${items.length.toLocaleString('es')} productos de ${esc(f.name)}.</span>`;
+    } catch (err) {
+      st.className = 'load-status err'; st.hidden = false;
+      st.innerHTML = `${ic('alert')}<span>${esc(err.message)}</span>`;
+    }
+  };
+  async function readSheetRows(f) {
+    if (/\.(csv|txt)$/i.test(f.name)) return parseDelimited(await f.text());
+    const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+  }
+
+  // =========================================================
+  // NUEVO INVENTARIO (desde el reporte de existencias)
+  // =========================================================
+  let invDraft = null;
+  $('#btnNewInventory').onclick = () => {
+    invDraft = null;
+    show('inv', 'Nuevo inventario');
+    $('#invStatus').hidden = true;
+    $('#invPreview').innerHTML = (catalog.items || []).length ? ''
+      : `<div class="load-status warn">${ic('alert')}<span>Aún no cargas el <b>maestro de productos</b>. Sin él no se puede escanear por código de barras; solo buscar por nombre o código. Cárgalo desde el menú de usuario → Maestro de productos.</span></div>`;
+    $('#invFoot').hidden = true;
+  };
+  const INV_RULES = [
+    ['categoria', /categ|familia|grupo|linea|nivel/],
+    ['cantidad', /cant|existenc|stock|saldo|unidades|^qty/],
+    ['ean', /ean|upc|barra|gtin/],
+    ['sku', /cod|material|sku|articulo/],
+    ['producto', /nombre|descrip|producto|texto/],
+  ];
+  function parseInventoryRows(rows) {
+    let hIdx = -1, map = null;
+    for (let i = 0; i < Math.min(rows.length, 20); i++) {
+      const m = {};
+      rows[i].forEach((h, k) => {
+        const n = normText(h);
+        for (const [key, re] of INV_RULES) if (m[key] === undefined && n && re.test(n)) { m[key] = k; break; }
+      });
+      if (m.producto !== undefined && m.cantidad !== undefined) { hIdx = i; map = m; break; }
+    }
+    if (!map) throw new Error('No encontré las columnas Código, Nombre y Cantidad en el archivo.');
+    const items = [];
+    for (const r of rows.slice(hIdx + 1)) {
+      const producto = String(r[map.producto] ?? '').trim();
+      if (!producto) continue;
+      items.push({ sku: map.sku !== undefined ? String(r[map.sku] ?? '').trim() : '', ean: map.ean !== undefined ? String(r[map.ean] ?? '').trim() : '',
+        producto, cantidad: parseNum(r[map.cantidad]), categoria: map.categoria !== undefined ? String(r[map.categoria] ?? '').trim() : '' });
+    }
+    return { sucursal: '', fecha: '', items };
+  }
+  $('#fileInventory').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const st = $('#invStatus');
+    st.className = 'load-status busy'; st.hidden = false;
+    st.innerHTML = `<span class="spinner"></span><span>Leyendo ${esc(f.name)}…</span>`;
+    try {
+      const rep = /\.pdf$/i.test(f.name) ? Importar.parseExistencias(await Importar.fromPdf(f)) : parseInventoryRows(await readSheetRows(f));
+      if (!rep.items.length) throw new Error('No encontré productos en el reporte. Revisa que sea el reporte de existencias.');
+      // Completa el código de barras con el maestro.
+      for (const it of rep.items) {
+        let p = it.sku ? catalogIndex().sku.get(normCode(it.sku)) : null;
+        if (!p && /^\d{8,14}$/.test(it.sku)) { p = catalogIndex().ean.get(normCode(it.sku)); if (p) { it.ean = it.sku; it.sku = p.sku; } }
+        if (!it.ean && p) it.ean = p.ean;
+      }
+      invDraft = { ...rep, archivo: f.name };
+      renderInvPreview();
+      st.className = 'load-status ok';
+      st.innerHTML = `${ic('check')}<span>${rep.items.length.toLocaleString('es')} productos leídos de ${esc(f.name)}.</span>`;
+    } catch (err) {
+      st.className = 'load-status err';
+      st.innerHTML = `${ic('alert')}<span>${esc(err.message)}</span>`;
+    }
+  };
+  function renderInvPreview() {
+    const d = invDraft;
+    const units = d.items.reduce((s, i) => s + i.cantidad, 0);
+    const withEan = d.items.filter((i) => i.ean).length;
+    const cats = {};
+    for (const i of d.items) { const c = i.categoria || 'Sin categoría'; (cats[c] = cats[c] || { n: 0, u: 0 }); cats[c].n++; cats[c].u += i.cantidad; }
+    const pctEan = d.items.length ? Math.round((withEan / d.items.length) * 100) : 0;
+    $('#invPreview').innerHTML = `
+      <div class="card pad">
+        <h3 class="card-title">Datos del inventario</h3>
+        <div class="grid2">
+          <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0007 RENCA"></label>
+          <label class="field">Existencias al<input id="invFecha" value="${esc(d.fecha)}" placeholder="dd/mm/aaaa"></label>
+        </div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Productos</div><div class="v">${d.items.length.toLocaleString('es')}</div><div class="s">líneas del reporte</div></div>
+        <div class="kpi"><div class="l">Unidades</div><div class="v">${units.toLocaleString('es')}</div><div class="s">según el sistema</div></div>
+        <div class="kpi"><div class="l">Categorías</div><div class="v">${Object.keys(cats).length}</div><div class="s">${esc(Object.keys(cats).slice(0, 2).join(', '))}${Object.keys(cats).length > 2 ? '…' : ''}</div></div>
+        <div class="kpi ${pctEan < 80 ? 'warn' : 'ok'}"><div class="l">Se pueden escanear</div><div class="v">${pctEan}%</div><div class="s">${withEan.toLocaleString('es')} con código de barras</div></div>
+      </div>
+      ${withEan < d.items.length ? `<p class="small muted">${(d.items.length - withEan).toLocaleString('es')} productos no tienen código de barras en el maestro: se cuentan buscándolos por nombre o código.</p>` : ''}
+      <div class="card"><div class="table-wrap"><table class="cat-table">
+        <thead><tr><th>Categoría</th><th class="num">Productos</th><th class="num">Unidades</th></tr></thead>
+        <tbody>${Object.entries(cats).map(([c, v]) => `<tr><td>${esc(c)}</td><td class="num">${v.n.toLocaleString('es')}</td><td class="num">${v.u.toLocaleString('es')}</td></tr>`).join('')}</tbody>
+      </table></div></div>`;
+    $('#invFoot').hidden = false;
+  }
+  $('#btnSaveInventory').onclick = () => {
+    if (!invDraft) return;
+    const sucursal = $('#invSucursal').value.trim();
+    const fecha = $('#invFecha').value.trim();
+    const o = newOrder({
+      tipo: 'inventario',
+      nombre: `Inventario ${sucursal || ''} ${fecha || new Date().toLocaleDateString('es')}`.replace(/\s+/g, ' ').trim(),
+      sucursal, fechaSistema: fecha,
+      items: invDraft.items.map((i) => ({ id: uid(), sku: i.sku, codigo: i.ean || '', producto: i.producto, categoria: i.categoria, cantidad: i.cantidad, lote: '', precio: 0, vencimiento: '' })),
+    });
+    db.orders.push(o);
+    save();
+    invDraft = null;
+    openOrder(o.id);
+  };
+
   // ---------- Utilidades ----------
   function download(blob, name) {
     const a = document.createElement('a');
@@ -1153,11 +1615,19 @@
   if (!window.REVISION_DEMO && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
   }
-  if (!checkHash()) {
+  (async () => {
+    // Demo: usuarios de prueba para entrar sin configurar nada.
+    if (window.REVISION_DEMO && !users.length) {
+      users.push(await makeUser({ nombre: 'Administrador', usuario: 'admin', pass: 'admin123', rol: 'admin' }));
+      users.push(await makeUser({ nombre: 'Sucursal Renca', usuario: 'renca', pass: '1234', rol: 'sucursal', sucursal: 'CL0007 RENCA' }));
+      saveUsers();
+    }
     if (window.REVISION_DEMO && !db.orders.length) createDemo();
-    renderHome();
-  }
+    const sid = loadJSON(SESSION_KEY, null) || (() => { try { return localStorage.getItem(SESSION_KEY); } catch (e) { return null; } })();
+    const u = users.find((x) => x.id === sid);
+    if (u) afterLogin(u); else showLogin();
+  })();
 
   // Exponer funciones para pruebas
-  window.__app = { parseDelimited, rowsToItems, normCode, parseNum, computeResults, processCode: (c) => handleCode(c) };
+  window.__app = { parseDelimited, rowsToItems, normCode, parseNum, computeResults, processCode: (c) => handleCode(c), parseCatalogRows };
 })();

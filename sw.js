@@ -1,5 +1,5 @@
 // Modo sin conexión: guarda la app y las librerías para poder contar sin internet.
-const CACHE = 'revision-v4';
+const CACHE = 'revision-v5';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'importar.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',

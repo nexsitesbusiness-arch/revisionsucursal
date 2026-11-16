@@ -50,6 +50,14 @@
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
     <symbol id="i-flash" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
     <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-5-6.7"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-clipboard-check" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 14l2 2 4-4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
   </svg>
 
@@ -60,23 +68,104 @@
     </button>
     <span class="crumb" id="title"></span>
     <span class="sp"></span>
+    <button class="user-btn" id="btnUser" hidden aria-label="Menú de usuario"></button>
     <button class="icon-btn" id="btnTheme" title="Modo claro / oscuro" aria-label="Cambiar modo claro u oscuro"><svg class="ic"><use href="#i-moon"/></svg></button>
   </header>
 
   <main id="app">
+    <!-- INICIO DE SESIÓN -->
+    <section id="view-login" class="view" hidden>
+      <div class="login-wrap">
+        <div class="card pad login-card">
+          <div class="login-logo"><span class="logo big"><svg class="ic"><use href="#i-check"/></svg></span></div>
+          <h2 class="page-title center" id="loginTitle">Iniciar sesión</h2>
+          <p class="muted center small" id="loginSub">Ingresa con tu usuario y contraseña.</p>
+          <form id="loginForm" autocomplete="on">
+            <div id="setupFields" hidden>
+              <label class="field">Nombre completo<input name="nombre" id="setupNombre" autocomplete="name"></label>
+            </div>
+            <label class="field">Usuario<input name="usuario" id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+            <label class="field">Contraseña<input name="clave" id="loginPass" type="password" autocomplete="current-password" required></label>
+            <div id="setupFields2" hidden>
+              <label class="field">Repite la contraseña<input name="clave2" id="setupPass2" type="password" autocomplete="new-password"></label>
+            </div>
+            <p class="login-error" id="loginError" hidden></p>
+            <button class="btn primary wide" id="btnLogin" type="submit"><svg class="ic"><use href="#i-lock"/></svg> <span id="btnLoginText">Entrar</span></button>
+          </form>
+          <div class="login-foot" id="setupImport" hidden>
+            <p class="small muted center">¿Ya tienes la app configurada en otro equipo?</p>
+            <label class="btn ghost wide"><svg class="ic"><use href="#i-upload"/></svg> Importar configuración
+              <input type="file" id="fileConfigSetup" accept=".json" hidden></label>
+          </div>
+          <p class="small muted center" id="loginDemo" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- USUARIOS (ADMIN) -->
+    <section id="view-users" class="view" hidden>
+      <div class="page-head">
+        <div><span class="kicker">Administración</span><h2 class="page-title">Usuarios</h2></div>
+        <div class="actions"><button class="btn primary" id="btnNewUser"><svg class="ic"><use href="#i-plus"/></svg> Nuevo usuario</button></div>
+      </div>
+      <p class="muted small">Los <b>administradores</b> cargan pedidos, inventarios y el maestro, y ven las cantidades. Los usuarios de <b>sucursal</b> solo cuentan y ven las diferencias al cerrar.</p>
+      <div class="card" id="usersList"></div>
+      <p class="small muted">Los usuarios se guardan en este equipo. Para usarlos en otra tablet, usa <b>Exportar configuración</b> en el menú de usuario e impórtala allá.</p>
+    </section>
+
+    <!-- MAESTRO DE PRODUCTOS (ADMIN) -->
+    <section id="view-catalog" class="view" hidden>
+      <div class="page-head">
+        <div><span class="kicker">Administración</span><h2 class="page-title">Maestro de productos</h2></div>
+        <div class="actions">
+          <label class="btn primary"><svg class="ic"><use href="#i-upload"/></svg> Subir maestro (Excel)
+            <input type="file" id="fileCatalog" accept=".xlsx,.xls,.csv" hidden></label>
+        </div>
+      </div>
+      <p class="muted small">El maestro relaciona el código de material con el código de barras (EAN). Con él, al escanear una caja la app sabe qué producto es, en pedidos y en inventarios.</p>
+      <div id="catalogStatus" class="load-status" hidden></div>
+      <div class="kpis" id="catalogStats"></div>
+      <div class="search-row">
+        <label class="search"><svg class="ic"><use href="#i-search"/></svg>
+          <input type="search" id="catalogSearch" placeholder="Buscar por nombre, material o código de barras" autocomplete="off"></label>
+      </div>
+      <div class="card" id="catalogList" style="margin-top:12px"></div>
+    </section>
+
+    <!-- NUEVO INVENTARIO (ADMIN) -->
+    <section id="view-inv" class="view" hidden>
+      <div class="page-head">
+        <div><span class="kicker">Central</span><h2 class="page-title">Nuevo inventario</h2></div>
+      </div>
+      <div class="card pad">
+        <h3 class="card-title">Reporte de existencias</h3>
+        <p class="muted">Sube el reporte de existencias de la sucursal en <b>PDF</b> o <b>Excel</b>. La app toma la sucursal, la fecha y, por cada producto, el código, el nombre, la categoría y la cantidad del sistema.</p>
+        <div class="actions">
+          <label class="btn primary"><svg class="ic"><use href="#i-upload"/></svg> Subir reporte
+            <input type="file" id="fileInventory" accept=".pdf,.xlsx,.xls,.csv,application/pdf" hidden></label>
+        </div>
+        <div id="invStatus" class="load-status" hidden></div>
+      </div>
+      <div id="invPreview"></div>
+      <div class="footbar" id="invFoot" hidden>
+        <button class="btn primary" id="btnSaveInventory"><svg class="ic"><use href="#i-save"/></svg> Crear inventario</button>
+      </div>
+    </section>
+
     <!-- INICIO -->
     <section id="view-home" class="view">
       <div class="page-head">
         <div>
-          <span class="kicker">Central</span>
-          <h2 class="page-title">Pedidos</h2>
+          <span class="kicker" id="homeKicker">Inicio</span>
+          <h2 class="page-title">Pedidos e inventarios</h2>
         </div>
         <div class="actions">
           <label class="btn">
             <svg class="ic"><use href="#i-folder"/></svg> Abrir pedido recibido
             <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
           </label>
-          <button class="btn primary" id="btnNewOrder"><svg class="ic"><use href="#i-plus"/></svg> Nuevo pedido</button>
+          <button class="btn admin-only" id="btnNewInventory"><svg class="ic"><use href="#i-clipboard-check"/></svg> Nuevo inventario</button>
+          <button class="btn primary admin-only" id="btnNewOrder"><svg class="ic"><use href="#i-plus"/></svg> Nuevo pedido</button>
         </div>
       </div>
       <div class="kpis" id="homeStats"></div>
@@ -170,9 +259,9 @@
         <div class="progress"><div class="bar" id="orderBar"></div></div>
       </div>
 
-      <div class="card pad">
+      <div class="card pad admin-only">
         <h3 class="card-title">Enviar a la sucursal</h3>
-        <p class="muted">La sucursal abre el enlace o el archivo y cuenta <b>sin ver las cantidades</b> enviadas.</p>
+        <p class="muted">La sucursal abre el enlace o el archivo y cuenta <b>sin ver las cantidades</b> <span id="shareWhat">enviadas</span>.</p>
         <div class="actions">
           <button class="btn primary" id="btnShareLink"><svg class="ic"><use href="#i-link"/></svg> Compartir enlace</button>
           <button class="btn" id="btnDownloadOrder"><svg class="ic"><use href="#i-download"/></svg> Descargar archivo</button>
@@ -180,7 +269,7 @@
         <p class="small muted" id="shareInfo"></p>
       </div>
 
-      <div class="danger-zone">
+      <div class="danger-zone admin-only">
         <button class="btn ghost danger" id="btnDeleteOrder"><svg class="ic"><use href="#i-trash"/></svg> Eliminar pedido</button>
       </div>
     </section>
@@ -191,7 +280,7 @@
         <div class="page-head tight">
           <div>
             <span class="kicker" id="countKicker"></span>
-            <h2 class="page-title">Conteo del pedido</h2>
+            <h2 class="page-title" id="countTitle">Conteo del pedido</h2>
           </div>
           <span class="muted small" id="progressText"></span>
         </div>
@@ -207,8 +296,9 @@
           <label class="inline small"><span class="long">Unidades por escaneo</span><span class="short">Unid./escaneo</span>
             <input type="number" id="scanQty" value="1" min="1" class="tiny">
           </label>
+          <select id="catFilter" class="sel-sm" hidden aria-label="Filtrar por categoría"></select>
           <label class="inline small"><input type="checkbox" id="onlyPending"> <span class="long">Solo sin contar</span><span class="short">Pendientes</span></label>
-          <button class="btn sm ghost" id="btnUndo"><svg class="ic"><use href="#i-undo"/></svg> Deshacer</button>
+          <button class="btn sm ghost" id="btnUndo" aria-label="Deshacer"><svg class="ic"><use href="#i-undo"/></svg> <span class="long">Deshacer</span></button>
         </div>
         <div id="toast" class="toast" hidden></div>
       </div>
