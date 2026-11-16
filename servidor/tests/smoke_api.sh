@@ -28,15 +28,17 @@ check "Login QF" "$(call qf POST login.php '{"usuario":"carla","clave":"Revisa20
 check "Auxiliar no puede administrar usuarios" "$(call aux GET usuarios.php)" 403
 check "Auxiliar no puede crear usuarios" "$(call aux POST usuarios.php '{"nombre":"Hack","usuario":"hack","rol":"admin","clave":"Hackeo2026"}')" 403
 echo "Documento:"
-DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0007","sucursal":"CL0007 RENCA","items":[{"id":"i1","sku":"CH9001","codigo":"7806130007772","producto":"ACIDO BORICO","cantidad":59,"precio":1000},{"id":"i2","sku":"CH6091","codigo":"7794640172731","producto":"ADHESIVO","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0007","sucursal":"CL0007 RENCA","items":[{"id":"i1","sku":"CH9001","codigo":"7806130007772","producto":"ACIDO BORICO","cantidad":59,"precio":1000,"vencimiento":"2027-01-31"},{"id":"i2","sku":"CH6091","codigo":"7794640172731","producto":"ADHESIVO","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
 check "Auxiliar no puede crear documentos" "$(call aux POST documentos.php "$DOC")" 403
 check "Admin crea inventario" "$(call admin POST documentos.php "$DOC")" 200
 check "Mapa vacío viaja como objeto (no lista)" "$(grep -c '"counts":{}' "$T/out")" 1
 call aux GET 'documentos.php?id=doc000001' >/dev/null
 check "Auxiliar NO recibe cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 0
 check "Auxiliar NO recibe costos" "$(grep -c '"precio":1000' "$T/out")" 0
+check "Auxiliar NO recibe vencimientos (los audita la QF)" "$(grep -c '"vencimiento"' "$T/out")" 0
 check "Auxiliar de otra sucursal no ve el documento" "$(call ana GET 'documentos.php?id=doc000001')" 404
 check "QF de la sucursal ve las cantidades" "$(call qf GET 'documentos.php?id=doc000001' >/dev/null; grep -c '"cantidad":59' "$T/out")" 1
+check "QF ve el vencimiento" "$(grep -c '"vencimiento":"2027-01-31"' "$T/out")" 1
 check "Auxiliar guarda su conteo" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":59,"i2":6},"items":[{"id":"i1","cantidad":0}],"review":{"i2":{"decision":"correcta"}}}}')" 200
 call qf GET 'documentos.php?id=doc000001' >/dev/null
 check "El auxiliar no pudo cambiar cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 1

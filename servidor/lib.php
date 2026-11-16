@@ -234,6 +234,7 @@ function doc_for_user(array $d, array $u): array {
     foreach ($d['items'] ?? [] as $k => $it) {
         $d['items'][$k]['cantidad'] = null;
         $d['items'][$k]['precio'] = 0;
+        unset($d['items'][$k]['vencimiento']); // el vencimiento lo audita la QF
     }
     unset($d['review'], $d['recount'], $d['samples'], $d['recountBy']);
     return doc_fix_maps($d);

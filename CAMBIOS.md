@@ -9,6 +9,9 @@ Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 - Se detectó al grabar la guía en video con la app real.
 - El auxiliar ya no ve el precio de los productos en la lista del pedido (modo sin servidor; con servidor ya se quitaba).
 - El vencimiento de cada producto se muestra en formato dd-mm-aaaa.
+- **Vencimiento solo para la QF (auditora):** al auxiliar ya no se le avisa ni se le muestran vencimientos, y el servidor no se los envía. La fecha leída del código se guarda igual y la QF la ve en el reporte y el Excel.
+  - *Decisión de Bastian:* el vencimiento es tarea de auditoría de la QF, no del conteo.
+- En inventarios, el aviso al escanear ya no dice "lote verificado" cuando el producto no tiene lote contra el cual comparar.
 
 ## 16-11-2026 · Versión 1.0: servidor, vencimiento, privacidad y rendimiento
 

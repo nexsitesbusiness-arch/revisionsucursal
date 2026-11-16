@@ -52,7 +52,7 @@ servidor/tests/   smoke_api.sh (40 pruebas de la API), reset_db_local.sh, genera
 3. **El QF debe revisar TODO** lo que tiene diferencia y lo que salió en la muestra aleatoria. Por cada uno marca "correcta" o "corregida" (con la cantidad real) y deja una observación. **Aprobar** se bloquea en la app y en el servidor (`pending_reviews`) mientras quede algo pendiente.
 4. **Revisión aleatoria:** el QF elige el estrato (caros, medios o baratos) y N productos; el azar usa `crypto.getRandomValues`.
 5. **Tiempo por producto:** se mide cuánto tiempo estuvo abierta la revisión de cada producto (`seg`) y queda en la bitácora.
-6. **Vencimiento:** si el código trae vencimiento y faltan ≤ 90 días (`VENC_DIAS`), se avisa y se guarda en `o.venc`.
+6. **Vencimiento (lo audita la QF):** si el código trae vencimiento y faltan ≤ 90 días (`VENC_DIAS`), se guarda en `o.venc`. Al auxiliar no se le avisa ni se le muestran vencimientos (tampoco los recibe del servidor); la QF y el administrador los ven en el conteo, en el reporte y en el Excel.
 7. **Fechas:** dd-mm-aaaa, hora de `America/Santiago`. Montos en CLP sin decimales.
 
 ## Zonas peligrosas

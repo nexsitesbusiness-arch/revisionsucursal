@@ -60,9 +60,9 @@ Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora
 - **Sin servidor:** las contraseñas se cifran con PBKDF2 en el equipo. Sirve para una tablet compartida, pero alguien con conocimientos técnicos y acceso físico a la tablet podría borrar los datos del navegador.
 - En los dos modos hay política de seguridad de contenido (CSP), verificación de integridad (SRI) de las librerías externas y exportaciones a Excel/CSV que neutralizan fórmulas escondidas.
 
-## Vencimiento
+## Vencimiento (lo audita la QF)
 
-Si el código escaneado (DataMatrix GS1) trae fecha de vencimiento y faltan **90 días o menos**, la app avisa. La fecha queda en el reporte del QF ("Vence pronto") y en el Excel (columna *Vencimiento leído*).
+Si el código escaneado (DataMatrix GS1) trae fecha de vencimiento y faltan **90 días o menos**, la app la guarda sin avisarle al auxiliar, para no distraer el conteo a ciegas. La **QF** la ve en el reporte ("Vence pronto" o "Vencido") y en el Excel (columna *Vencimiento leído*). Si escanea el administrador o la QF, la app sí avisa en el momento.
 
 ## Privacidad (Ley 21.719)
 

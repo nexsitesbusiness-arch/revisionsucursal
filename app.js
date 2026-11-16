@@ -948,8 +948,8 @@
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
       i.categoria && `<span class="opt">${esc(i.categoria)}</span>`,
-      i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(fmtDay(i.vencimiento))}</span>`),
-      (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
+      isStaff() && i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(fmtDay(i.vencimiento))}</span>`),
+      isStaff() && (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
       // El auxiliar cuenta a ciegas: nunca ve costos.
       i.precio && isStaff() ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
     ].filter(Boolean).join('<span class="dot"> · </span>');
@@ -1202,7 +1202,7 @@
 
     setCount(target, qty(target) + amount);
     beep(true);
-    const loteOk = scannedLote ? ' · lote verificado' : '';
+    const loteOk = scannedLote && target.lote ? ' · lote verificado' : '';
     flash(`${ic('check')}<span>${esc(target.producto)}${target.lote ? ' · ' + esc(target.lote) : ''}${loteOk} — contados <b>${qty(target)}</b></span>`, 'ok');
     if (gs1 && gs1.vencimiento) checkExpiry(target, gs1.vencimiento);
     // Lleva el producto a la vista
@@ -1226,6 +1226,11 @@
       const prev = current.venc[item.id];
       // Se guarda la fecha más próxima leída para ese producto.
       if (!prev || fecha < prev) { current.venc[item.id] = fecha; save(); }
+      // El vencimiento lo audita la QF: al auxiliar no se le avisa, solo queda guardado.
+      if (!isStaff()) {
+        audit(dias < 0 ? 'Escaneó producto vencido' : 'Escaneó producto por vencer', { producto: item.producto, sku: item.sku || item.codigo || null, detalle: `vence ${fmtDay(fecha)}` });
+        return;
+      }
       if (dias < 0) {
         beep(false);
         flash(`${ic('alert')}<span><b>Producto vencido</b> · ${esc(item.producto)}<br>Venció el ${fmtDay(fecha)}. Sepáralo y regístralo con una foto.</span>`, 'err');
