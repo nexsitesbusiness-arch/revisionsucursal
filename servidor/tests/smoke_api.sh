@@ -44,6 +44,15 @@ call qf GET 'documentos.php?id=doc000001' >/dev/null
 check "El auxiliar no pudo cambiar cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 1
 check "El conteo del auxiliar quedó guardado" "$(grep -c '"counts":{"i1":59,"i2":6}' "$T/out")" 1
 check "El auxiliar no pudo registrar revisiones" "$(grep -c '"review":{"i2"' "$T/out")" 0
+echo "Inventario cargado por la QF (reporte de SPOS):"
+INVQF='{"documento":{"id":"docqf0001","tipo":"inventario","nombre":"Inventario QF","sucursal":"cl0007   renca","items":[{"id":"q1","sku":"CH9001","producto":"ACIDO BORICO","cantidad":5}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+check "QF crea inventario de su sucursal" "$(call qf POST documentos.php "$INVQF")" 200
+check "QF no puede crear pedidos" "$(call qf POST documentos.php '{"documento":{"id":"docqf0002","tipo":"pedido","nombre":"P","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF no puede crear inventario de otra sucursal" "$(call qf POST documentos.php '{"documento":{"id":"docqf0003","tipo":"inventario","nombre":"I","sucursal":"CL0009 MAIPU","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "Auxiliar no puede crear inventarios" "$(call aux POST documentos.php '{"documento":{"id":"docqf0004","tipo":"inventario","nombre":"I","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF elimina inventario sin conteo" "$(call qf DELETE 'documentos.php?id=docqf0001')" 200
+check "QF no puede eliminar un inventario ya contado" "$(call qf DELETE 'documentos.php?id=doc000001')" 403
+check "Auxiliar no puede eliminar documentos" "$(call aux DELETE 'documentos.php?id=doc000001')" 403
 check "Versión antigua da conflicto" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":1}}}')" 409
 check "Auxiliar finaliza" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":2,"documento":{"counts":{"i1":59,"i2":6},"finishedAt":1}}')" 200
 check "Auxiliar no puede cambiar el conteo finalizado" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":1,"i2":6}}}')" 403

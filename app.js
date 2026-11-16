@@ -324,7 +324,7 @@
 
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre' : 'Abre'} el enlace o archivo que te enviaron.
+      list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre el enlace o archivo que te enviaron.' : isStaff() ? 'Para tomar inventario, descarga de SPOS el reporte de existencias en PDF y usa <b>Nuevo inventario</b>.' : 'Cuando la QF cargue un inventario o llegue un pedido, aparecerá aquí.'}
         ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
       if ($('#btnDemo')) $('#btnDemo').onclick = async () => {
         let o = createDemo();
@@ -665,6 +665,20 @@
     $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? (isStaff() ? ' Reabrir conteo' : ' Conteo finalizado') : x.counted ? ' Seguir contando' : ' ' + T(current).contar);
     $('#btnShowResults').innerHTML = ic('chart') + (current.tipo === 'inventario' ? ' Reporte de desviaciones' : ' Ver diferencias');
     $('#shareInfo').textContent = '';
+    // Eliminar: el administrador siempre; la QF, un inventario mal cargado mientras nadie ha contado.
+    $('#dangerZone').hidden = !canDeleteDoc(current);
+    $('#btnDeleteOrder').innerHTML = ic('trash') + ' Eliminar ' + T(current).doc;
+  }
+  function canDeleteDoc(o) {
+    if (isAdmin()) return true;
+    return role() === 'qf' && o.tipo === 'inventario' && !o.finishedAt && !Object.keys(o.counts || {}).length && !(o.extras || []).length;
+  }
+  // Misma sucursal: compara el código (ej. CL0007) si ambos lo traen; si no, el texto completo.
+  function sameBranch(a, b) {
+    const n = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const code = (s) => (n(s).match(/\b[a-z]{2}\d{3,}\b/) || [])[0];
+    if (!n(a) || !n(b)) return true;
+    return code(a) && code(b) ? code(a) === code(b) : n(a) === n(b);
   }
 
   // El pedido viaja comprimido, así las cantidades no quedan a la vista.
@@ -2242,11 +2256,12 @@
   // =========================================================
   let invDraft = null;
   $('#btnNewInventory').onclick = () => {
+    if (!isStaff()) return;
     invDraft = null;
     show('inv', 'Nuevo inventario');
     $('#invStatus').hidden = true;
     $('#invPreview').innerHTML = (catalog.items || []).length ? ''
-      : `<div class="load-status warn">${ic('alert')}<span>Aún no cargas el <b>maestro de productos</b>. Sin él no se puede escanear por código de barras; solo buscar por nombre o código. Cárgalo desde el menú de usuario → Maestro de productos.</span></div>`;
+      : `<div class="load-status warn">${ic('alert')}<span>Aún no cargas el <b>maestro de productos</b>. Sin él no se puede escanear por código de barras; solo buscar por nombre o código. ${isAdmin() ? 'Cárgalo desde el menú de usuario → Maestro de productos.' : 'Pídele al administrador que lo cargue.'}</span></div>`;
     $('#invFoot').hidden = true;
   };
   const INV_RULES = [
@@ -2332,8 +2347,10 @@
   }
   $('#btnSaveInventory').onclick = async () => {
     if (!invDraft) return;
-    const sucursal = $('#invSucursal').value.trim();
+    const sucursal = $('#invSucursal').value.trim() || (me && me.sucursal) || '';
     const fecha = $('#invFecha').value.trim();
+    if (!isAdmin() && me.sucursal && !sameBranch(sucursal, me.sucursal))
+      return info('Reporte de otra sucursal', `Este reporte es de <b>${esc(sucursal)}</b> y tú estás asignada a <b>${esc(me.sucursal)}</b>. Revisa que descargaste de SPOS el reporte de tu sucursal.`);
     const o = newOrder({
       tipo: 'inventario',
       nombre: `Inventario ${sucursal || ''} ${fecha || new Date().toLocaleDateString('es')}`.replace(/\s+/g, ' ').trim(),

@@ -47,6 +47,8 @@ servidor/tests/   smoke_api.sh (40 pruebas de la API), reset_db_local.sh, genera
 
 ## Reglas de negocio que no son obvias
 
+0. **Quién carga qué:** el **inventario** lo carga la **QF** desde el reporte de existencias que descarga de **SPOS** (PDF, ver `Importar.parseExistencias`). Los **pedidos** y la configuración (usuarios, maestro, costos) son del **administrador**. La QF solo puede crear inventarios de su sucursal (`same_branch()` compara el código tipo CL0007) y eliminarlos mientras nadie haya contado.
+
 1. **El auxiliar cuenta a ciegas.** Nunca debe recibir `cantidad` ni `precio` del sistema: el servidor los quita en `doc_for_user()`. Al finalizar ve solo "Conteo finalizado", sin totales ni avisos de correcto o incorrecto (tampoco "lote distinto").
 2. **Clase ABC:** se ordenan las desviaciones por valor absoluto. A son las que suman el primer 80 % del valor, B el siguiente 15 % y C el resto. Sin costos, se calcula por unidades.
 3. **El QF debe revisar TODO** lo que tiene diferencia y lo que salió en la muestra aleatoria. Por cada uno marca "correcta" o "corregida" (con la cantidad real) y deja una observación. **Aprobar** se bloquea en la app y en el servidor (`pending_reviews`) mientras quede algo pendiente.

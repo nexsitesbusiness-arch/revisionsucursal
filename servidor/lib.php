@@ -140,8 +140,17 @@ function require_csrf(): void {
 }
 // Un usuario con sucursal asignada solo ve documentos de su sucursal (o sin sucursal).
 function can_see_doc(array $u, array $doc): bool {
-    if ($u['rol'] === 'admin' || $u['sucursal'] === '' || ($doc['sucursal'] ?? '') === '') return true;
-    return mb_strtolower(trim($u['sucursal'])) === mb_strtolower(trim($doc['sucursal']));
+    if ($u['rol'] === 'admin') return true;
+    return same_branch($u['sucursal'], (string) ($doc['sucursal'] ?? ''));
+}
+// Misma sucursal: compara el código (ej. CL0007) si ambos lo traen; si no, el texto completo.
+function same_branch(string $a, string $b): bool {
+    $n = fn($s) => preg_replace('/\s+/u', ' ', mb_strtolower(trim($s)));
+    $a = $n($a); $b = $n($b);
+    if ($a === '' || $b === '') return true;
+    $ca = preg_match('/\b[a-z]{2}\d{3,}\b/u', $a, $m1) ? $m1[0] : '';
+    $cb = preg_match('/\b[a-z]{2}\d{3,}\b/u', $b, $m2) ? $m2[0] : '';
+    return $ca !== '' && $cb !== '' ? $ca === $cb : $a === $b;
 }
 
 // ---------- Contraseñas ----------

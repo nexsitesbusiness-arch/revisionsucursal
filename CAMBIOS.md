@@ -2,6 +2,14 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 16-11-2026 · La QF carga el inventario desde SPOS
+
+- La **QF** crea el inventario subiendo el reporte de existencias en PDF que descarga de **SPOS**. Antes lo hacía solo el administrador.
+  - *Decisión de Bastian:* el inventario lo inicia la QF de la sucursal; el administrador queda para la configuración y los pedidos.
+- La QF solo puede cargar reportes de **su sucursal**: la app y el servidor lo validan comparando el código (ej. CL0007), sin importar mayúsculas ni espacios.
+- La QF puede **eliminar un inventario mal cargado** mientras nadie haya empezado a contar. El auxiliar nunca puede eliminar. Todo queda en la bitácora.
+- Nuevas pruebas: 7 en la API (permisos de crear y eliminar) y una prueba de navegador del flujo completo.
+
 ## 16-11-2026 · Corrección: escaneo de DataMatrix en inventarios
 
 - Al escanear una caja con DataMatrix (trae lote) en un inventario, el producto quedaba como "Lote distinto" y sin contar, porque los inventarios no tienen lote cargado. Ahora, si el producto no tiene lote en el documento, se cuenta normal.

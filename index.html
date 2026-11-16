@@ -131,11 +131,11 @@
     <!-- NUEVO INVENTARIO (ADMIN) -->
     <section id="view-inv" class="view" hidden>
       <div class="page-head">
-        <div><span class="kicker">Central</span><h2 class="page-title">Nuevo inventario</h2></div>
+        <div><span class="kicker">QF · Toma de inventario</span><h2 class="page-title">Nuevo inventario</h2></div>
       </div>
       <div class="card pad">
-        <h3 class="card-title">Reporte de existencias</h3>
-        <p class="muted">Sube el reporte de existencias de la sucursal en <b>PDF</b> o <b>Excel</b>. La app toma la sucursal, la fecha y, por cada producto, el código, el nombre, la categoría y la cantidad del sistema.</p>
+        <h3 class="card-title">Reporte de existencias de SPOS</h3>
+        <p class="muted">Descarga desde <b>SPOS</b> el reporte de existencias de la sucursal en <b>PDF</b> y súbelo aquí (también sirve en Excel). La app toma la sucursal, la fecha y, por cada producto, el código, el nombre, la categoría y la cantidad del sistema. El auxiliar no verá esas cantidades.</p>
         <div class="actions">
           <label class="btn primary"><svg class="ic"><use href="#i-upload"/></svg> Subir reporte
             <input type="file" id="fileInventory" accept=".pdf,.xlsx,.xls,.csv,application/pdf" hidden></label>
@@ -185,7 +185,7 @@
             <svg class="ic"><use href="#i-folder"/></svg> Abrir pedido recibido
             <input type="file" id="fileOpenOrder" accept=".json,.pedido" hidden>
           </label>
-          <button class="btn admin-only" id="btnNewInventory"><svg class="ic"><use href="#i-clipboard-check"/></svg> Nuevo inventario</button>
+          <button class="btn staff-only" id="btnNewInventory"><svg class="ic"><use href="#i-clipboard-check"/></svg> Nuevo inventario</button>
           <button class="btn primary admin-only" id="btnNewOrder"><svg class="ic"><use href="#i-plus"/></svg> Nuevo pedido</button>
         </div>
       </div>
@@ -290,7 +290,7 @@
         <p class="small muted" id="shareInfo"></p>
       </div>
 
-      <div class="danger-zone admin-only">
+      <div class="danger-zone" id="dangerZone">
         <button class="btn ghost danger" id="btnDeleteOrder"><svg class="ic"><use href="#i-trash"/></svg> Eliminar pedido</button>
       </div>
     </section>
