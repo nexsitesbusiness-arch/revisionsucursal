@@ -1059,7 +1059,7 @@
       <div class="card"><ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
         <span class="st">${ic('alert')}</span>
         <div class="info"><div class="name">${esc(x.producto)}</div>
-          <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
+          <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, isStaff() && esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
         ${evButton(current, x.id, 'data-xact')}
         <div class="stepper">
           <button class="step" data-xact="dec" aria-label="Restar">${ic('minus')}</button>
@@ -1165,6 +1165,8 @@
     if (scannedLote) {
       // El código trae lote (DataMatrix GS1): verificamos contra el pedido.
       target = matches.find((i) => normLote(i.lote) === normLote(scannedLote));
+      // Inventarios (y pedidos sin lote): si el producto no tiene lote cargado, se cuenta igual.
+      if (!target) { const sinLote = matches.filter((i) => !i.lote); if (sinLote.length === 1) target = sinLote[0]; }
       if (!target) {
         const expected = matches.map((i) => i.lote || 'sin lote').join(', ');
         addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: scannedLote, motivo: 'Lote distinto al enviado' }, amount);

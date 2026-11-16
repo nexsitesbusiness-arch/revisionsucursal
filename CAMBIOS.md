@@ -2,6 +2,12 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 16-11-2026 · Corrección: escaneo de DataMatrix en inventarios
+
+- Al escanear una caja con DataMatrix (trae lote) en un inventario, el producto quedaba como "Lote distinto" y sin contar, porque los inventarios no tienen lote cargado. Ahora, si el producto no tiene lote en el documento, se cuenta normal.
+- El auxiliar ya no ve el motivo "Lote distinto al enviado" en los productos que agrega (conteo a ciegas). El QF y el administrador sí lo ven.
+- Se detectó al grabar la guía en video con la app real.
+
 ## 16-11-2026 · Versión 1.0: servidor, vencimiento, privacidad y rendimiento
 
 - **Modo con servidor (PHP + MySQL en Google Cloud).** Usuarios, documentos, fotos y bitácora quedan centralizados. Los permisos los valida el servidor, no solo la app.
