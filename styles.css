@@ -1,7 +1,6 @@
 /* =========================================================
    Estilo "Ejecutivo": azul corporativo, barra azul marino,
    tarjetas sobrias, botones redondos e íconos de línea.
-   Modo oscuro: "nocturno".
    ========================================================= */
 :root,
 [data-theme="ejecutivo"] {
@@ -25,32 +24,10 @@
   --shadow: 0 1px 2px rgba(20, 32, 46, .06);
   --shadow-lg: 0 10px 30px rgba(20, 32, 46, .14);
 }
-[data-theme="nocturno"] {
-  --bg: #0e1218;
-  --surface: #151b23;
-  --surface-2: #121821;
-  --border: #263140;
-  --rule: #1f2833;
-  --text: #e4eaf1;
-  --muted: #8c99aa;
-  --primary: #4c8dff;
-  --primary-hover: #6a9fff;
-  --primary-ink: #ffffff;
-  --primary-soft: #172338;
-  --head-bg: #0b0f14;
-  --head-text: #e4eaf1;
-  --head-muted: #8c99aa;
-  --ok: #45c07a; --ok-soft: #12291d;
-  --warn: #e0a43a; --warn-soft: #2a2112;
-  --bad: #ff6b6b; --bad-soft: #2d1618;
-  --shadow: none;
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, .5);
-  color-scheme: dark;
-}
 :root {
   --radius: 10px;
-  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --topbar-h: 56px;
 }
 
@@ -292,14 +269,15 @@ ul.items { list-style: none; margin: 0; padding: 0; }
   table.results td[data-label="Clase"] { grid-column: 1 / -1; }
   table.results td[data-label="Clase"]:empty { display: none; }
   table.results td.c-prod { grid-column: 1 / -1; }
-  table.results td[data-label="Estado"] { grid-column: span 3; align-self: end; }
+  table.results td[data-label="Revisión QF"] { grid-column: 1 / -1; }
+  table.results tr.verified { background: color-mix(in srgb, var(--ok-soft) 45%, transparent); }
+  table.results tr.verified td { background: none; }
   table.results td.num::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
   table.results td.num { text-align: left; }
   table.results tbody tr:last-child { border-bottom: 0; }
 }
 @media (max-width: 480px) {
   table.results tr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  table.results td[data-label="Estado"] { grid-column: 1 / -1; }
 }
 
 
@@ -404,3 +382,58 @@ tr.verified td { background: color-mix(in srgb, var(--ok-soft) 45%, transparent)
 .state-cell .pill svg.ic { width: 12px; height: 12px; vertical-align: -1px; }
 .done-ok { width: 64px; height: 64px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: grid; place-items: center; margin: 4px auto 12px; }
 .done-ok svg.ic { width: 34px; height: 34px; stroke-width: 2.5; }
+
+/* ---------- Desplegable propio (reemplaza al select nativo) ---------- */
+select.dd-native { display: none !important; }
+.dd { position: relative; display: inline-block; min-width: 180px; max-width: 100%; }
+label.field .dd { display: block; margin-top: 6px; }
+.dd-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; font: inherit; font-size: 14px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
+.dd-sm .dd-btn { border-radius: 999px; padding: 8px 14px; font-size: 13px; }
+.dd-btn:hover { border-color: var(--muted); }
+.dd-btn:focus-visible, .dd.open .dd-btn { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.dd-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-caret { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; transition: transform .2s; }
+.dd.open .dd-caret { transform: rotate(180deg); }
+.dd-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; min-width: 100%; max-width: min(92vw, 420px); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; animation: ddIn .14s ease; }
+.dd-pop.up { top: auto; bottom: calc(100% + 6px); }
+@keyframes ddIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.dd-search input { margin: 0 0 6px; padding: 8px 12px; font-size: 14px; }
+.dd-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+.dd-list li { padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-list li.act { background: var(--primary-soft); }
+.dd-list li.sel { font-weight: 700; color: var(--primary); }
+.dd-list li.sel::before { content: "✓ "; }
+.dd-empty { color: var(--muted); cursor: default !important; }
+dialog .dd { display: block; margin-top: 6px; }
+@media (max-width: 600px) { .options-row .dd { flex: 1 1 100%; order: 10; } }
+
+/* ---------- Revisión del QF ---------- */
+.actions.grow { flex: 1 1 420px; }
+.report-search { flex: 1 1 260px; min-width: 200px; }
+.choice-list { display: grid; gap: 8px; margin-top: 12px; }
+.choice { display: flex; align-items: flex-start; gap: 10px; border: 1.5px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; color: var(--text) !important; font-weight: 500 !important; font-size: 14px !important; margin: 0 !important; transition: border-color .15s, background .15s; }
+.choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--primary); flex: none; }
+.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
+.choice small { display: block; color: var(--muted); font-weight: 400; }
+.choice .choice-qty { margin-top: 8px; width: 120px; }
+.rev-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 4px; }
+.rev-facts div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.rev-facts span { display: block; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.rev-facts b { font-size: 18px; }
+@media (max-width: 480px) { .rev-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rev-cell { display: grid; gap: 4px; justify-items: start; }
+.rev-cell .obs { font-size: 12px; color: var(--muted); max-width: 260px; }
+.pill.sample { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
+.rev-timer { font-size: 12px; color: var(--muted); }
+
+/* ---------- Bitácora ---------- */
+.filters-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .filters-grid { grid-template-columns: 1fr; } }
+.log-filters { overflow: visible; }
+table.log td { font-size: 13px; }
+table.log td.when { white-space: nowrap; }
+.pill.denegado { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.privacy-note { margin: 14px 0 0; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5; }

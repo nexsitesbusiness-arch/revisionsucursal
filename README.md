@@ -41,9 +41,26 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
 1. **Administrador:** carga el maestro, los costos y el reporte de existencias.
 2. **Auxiliar:** cuenta a ciegas (escaneando o digitando) y finaliza.
-3. **QF:** abre el **Reporte de desviaciones**, ordenado por **clase ABC** (A = desviaciones que suman el 80 % del valor, B = siguiente 15 %, C = resto). Recuenta empezando por la clase A, escribe el **Recuento QF** (reemplaza lo contado por el auxiliar) y **aprueba**. El Excel trae Sistema, Contado auxiliar, Recuento QF, Cantidad final, Costo y Valor de la diferencia.
+3. **QF:** abre el **Reporte de desviaciones**, ordenado por **clase ABC** (A = desviaciones que suman el 80 % del valor, B = siguiente 15 %, C = resto) y **revisa cada desviación**: marca si la cantidad contada es correcta (la diferencia es real) o la corrige, y deja una observación. La app mide cuánto tiempo estuvo revisando cada producto.
+   - **Revisión aleatoria:** elige al azar N productos de los más caros, de costo medio o de los más baratos (incluidos los que no tuvieron diferencia) para recontarlos.
+   - **Buscador:** encuentra cualquier producto del documento para revisarlo.
+   - **Aprobar** solo se habilita cuando todas las desviaciones y la muestra aleatoria están revisadas.
 
-Sin costos cargados, el orden ABC se calcula por unidades de diferencia (la app lo avisa).
+Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidades (la app lo avisa).
+
+## Bitácora
+
+Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora** del reporte para ver solo ese documento. Registra quién, qué, cuándo (hora de Santiago) y en qué equipo: inicios de sesión (también los fallidos y bloqueos), documentos abiertos, cada cantidad registrada, finalización, apertura del reporte, cada revisión de producto con su tiempo, revisiones aleatorias, búsquedas, filtros, exportaciones, aprobaciones, reaperturas, evidencias y cambios de usuarios, maestro y costos. Se filtra por usuario, acción, documento, fechas y texto, y se exporta a Excel.
+
+- Los registros no se pueden editar ni borrar desde la app. Cada uno guarda la huella (hash SHA-256) del anterior: **Verificar integridad** detecta si alguien alteró o borró registros.
+- No guarda contraseñas ni datos sensibles. Al iniciar sesión se informa a los usuarios que su actividad queda registrada.
+
+## Seguridad
+
+- Contraseñas cifradas (PBKDF2), mínimo 6 caracteres y sin claves comunes. Bloqueo de 5 minutos tras 5 intentos fallidos. Cierre de sesión tras 30 minutos sin uso.
+- Política de seguridad de contenido (CSP) y verificación de integridad (SRI) de las librerías externas.
+- Las exportaciones a Excel/CSV neutralizan fórmulas escondidas en los textos.
+- **Limitación importante:** sin servidor, los permisos, usuarios y la bitácora viven en cada equipo. Una persona con conocimientos técnicos y acceso físico a la tablet podría borrar los datos del navegador. Para control total (bitácora central inalterable, permisos validados en servidor) hace falta el backend PHP + MySQL en Google Cloud.
 
 ## Maestro de productos
 

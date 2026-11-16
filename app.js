@@ -12,8 +12,17 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ic = (n) => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const fmtMoney = (n) => (Number(n) || 0).toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtDate = (ts) => new Date(ts).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' });
+  // Montos en pesos chilenos: separador de miles y sin decimales salvo que los tenga.
+  const fmtMoney = (n) => (Number(n) || 0).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  // Fechas en hora de Santiago, formato dd-mm-aaaa HH:MM.
+  const TZ = 'America/Santiago';
+  function fmtDate(ts, withSec = false) {
+    const p = {};
+    new Intl.DateTimeFormat('es-CL', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: withSec ? '2-digit' : undefined, hour12: false })
+      .formatToParts(new Date(ts)).forEach((x) => { p[x.type] = x.value; });
+    return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}${withSec ? ':' + p.second : ''}`;
+  }
+  const fmtSecs = (s) => (s == null ? '' : s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 
   // ---------- Normalización ----------
   const stripAccents = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -66,14 +75,44 @@
   const role = () => (me ? (me.rol === 'sucursal' ? 'auxiliar' : me.rol) : null);
   const isAdmin = () => role() === 'admin';
   const isStaff = () => role() === 'admin' || role() === 'qf';
-  const views = ['login', 'home', 'load', 'order', 'count', 'results', 'users', 'catalog', 'inv'];
+  const views = ['login', 'home', 'load', 'order', 'count', 'results', 'users', 'catalog', 'inv', 'log'];
   function show(view, title) {
+    const prev = views.find((v) => !$('#view-' + v).hidden);
+    if (prev !== view || (viewTimer && current && viewTimer.docId !== current.id)) {
+      closeViewTimer();
+      if (TIMED[view] && me) viewTimer = { view, t: Date.now(), docId: current ? current.id : null, doc: current ? current.nombre : null, sucursal: current ? current.sucursal : null };
+    }
     views.forEach((v) => { $('#view-' + v).hidden = v !== view; });
     $('#title').textContent = title || '';
     if (view !== 'count') stopScanner();
     window.scrollTo(0, 0);
   }
   $('#btnHome').onclick = () => { if (me) renderHome(); };
+
+  // ---------- Bitácora ----------
+  // Registra una acción del usuario actual. Nunca incluye contraseñas.
+  function audit(accion, extra = {}) {
+    if (!window.Bitacora) return;
+    const o = extra.doc === undefined && current ? current : null;
+    Bitacora.log(Object.assign({
+      usuarioId: me ? me.id : null, usuario: me ? me.usuario : (extra.usuario || null), nombre: me ? me.nombre : null, rol: me ? role() : null,
+      accion, docId: o ? o.id : null, doc: o ? o.nombre : null, sucursal: o ? o.sucursal || null : null,
+    }, extra));
+  }
+  // Tiempo en pantallas de trabajo (conteo y reporte): se registra al salir.
+  let viewTimer = null;
+  const TIMED = { count: 'Tiempo en conteo', results: 'Tiempo en reporte de desviaciones', log: 'Tiempo en bitácora' };
+  function closeViewTimer() {
+    if (!viewTimer) return;
+    const seg = Math.round((Date.now() - viewTimer.t) / 1000);
+    if (seg >= 2) audit(TIMED[viewTimer.view], { docId: viewTimer.docId, doc: viewTimer.doc, sucursal: viewTimer.sucursal, duracionSeg: seg });
+    viewTimer = null;
+  }
+  window.addEventListener('pagehide', closeViewTimer);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { const v = viewTimer; closeViewTimer(); if (v) viewTimer = { ...v, t: Date.now(), paused: true }; }
+    else if (viewTimer && viewTimer.paused) viewTimer = { ...viewTimer, t: Date.now(), paused: false };
+  });
 
   // ---------- Diálogo ----------
   function ask({ title, html = '', buttons = [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] }) {
@@ -85,7 +124,7 @@
     return new Promise((resolve) => {
       dlg.onclose = () => {
         const fields = {};
-        dlg.querySelectorAll('#dlgBody [name]').forEach((el) => { fields[el.name] = el.value; });
+        dlg.querySelectorAll('#dlgBody [name]').forEach((el) => { if ((el.type === 'radio' || el.type === 'checkbox') && !el.checked) return; fields[el.name] = el.value; });
         resolve({ value: dlg.returnValue, fields });
       };
       // Enter en un campo = botón principal (no el primer botón del formulario).
@@ -172,19 +211,8 @@
     return o;
   }
 
-  // ---------- Modo claro / oscuro ----------
-  function applyTheme(id) {
-    document.documentElement.dataset.theme = id;
-    const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.content = id === 'nocturno' ? '#0b0f14' : '#13233a';
-    $('#btnTheme').innerHTML = ic(id === 'nocturno' ? 'sun' : 'moon');
-  }
-  $('#btnTheme').onclick = () => {
-    const next = document.documentElement.dataset.theme === 'nocturno' ? 'ejecutivo' : 'nocturno';
-    applyTheme(next);
-    try { localStorage.setItem('revision-tema', next); } catch (e) { /* sin almacenamiento */ }
-  };
-  applyTheme(document.documentElement.dataset.theme === 'nocturno' ? 'nocturno' : 'ejecutivo');
+  // Solo tema claro (estándar del proyecto). Se limpia la preferencia antigua de modo oscuro.
+  try { localStorage.removeItem('revision-tema'); } catch (e) { /* sin almacenamiento */ }
 
   $('#btnNewOrder').onclick = () => startLoad();
   $('#fileOpenOrder').onchange = async (e) => {
@@ -311,7 +339,10 @@
     el.hidden = !msg;
   }
 
+  const MAX_MB = 25;
+  const tooBig = (f) => f.size > MAX_MB * 1024 * 1024;
   async function importFile(f, isPhoto = false) {
+    if (tooBig(f)) throw new Error(`El archivo pesa más de ${MAX_MB} MB. Revisa que sea el correcto.`);
     const name = f.name.toLowerCase();
     let items = [], exact = true;
     setLoadStatus(`Leyendo ${esc(f.name)}…`, 'busy');
@@ -444,6 +475,7 @@
     });
     db.orders.push(o);
     save();
+    audit('Creó pedido', { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos` });
     openOrder(o.id);
   };
 
@@ -459,6 +491,7 @@
     current = getOrder(id);
     if (!current) return renderHome();
     show('order', current.nombre);
+    audit(`Abrió ${T(current).doc}`, { detalle: current.finishedAt ? 'finalizado' : 'abierto' });
     $('#orderTitle').textContent = current.nombre;
     $('#orderMeta').textContent = `${T(current).Doc}${current.sucursal ? ' · ' + current.sucursal : ''}${current.fechaSistema ? ' · existencias al ' + current.fechaSistema : ''} · ${current.items.length} productos`;
     $('#shareWhat').textContent = current.tipo === 'inventario' ? 'del sistema' : 'enviadas';
@@ -487,11 +520,13 @@
         ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento, sku: sku || '', categoria: categoria || '' })) });
     db.orders.push(o);
     save();
+    audit(`Abrió ${T(o).doc} recibido`, { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos` });
     openOrder(o.id);
   }
 
   $('#btnShareLink').onclick = async () => {
     const url = location.origin + location.pathname + '#p=' + exportPayload(current);
+    audit('Compartió enlace del documento');
     const text = `${T(current).Doc} "${current.nombre}" para contar:`;
     if (navigator.share) {
       try { await navigator.share({ title: current.nombre, text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -503,12 +538,14 @@
   $('#btnDownloadOrder').onclick = () => {
     const blob = new Blob([JSON.stringify({ pedido: exportPayload(current) })], { type: 'application/json' });
     download(blob, safeName(current.nombre) + '.pedido');
+    audit('Descargó archivo del documento');
   };
   $('#btnDeleteOrder').onclick = async () => {
     const r = await ask({ title: `¿Eliminar este ${T(current).doc}?`, html: '<p>Se borrará también el conteo y sus fotos.</p>',
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
     Object.values(current.evid || {}).forEach((ev) => ev.fotos.forEach((fid) => Fotos.del(fid)));
+    audit(`Eliminó ${T(current).doc}`, { detalle: `${current.items.length} productos` });
     db.orders = db.orders.filter((o) => o.id !== current.id);
     save();
     renderHome();
@@ -626,6 +663,7 @@
     const next = { motivo: r.fields.motivo || '', nota: (r.fields.nota || '').trim(), fotos };
     if (!next.motivo && !next.nota && !fotos.length) delete current.evid[id];
     else current.evid[id] = next;
+    audit('Registró evidencia', { detalle: `${next.motivo || 'sin motivo'}${next.nota ? ' · ' + next.nota : ''} · ${fotos.length} foto(s)`, producto: titulo });
     save();
     if (onDone) onDone();
   }
@@ -657,12 +695,13 @@
       ask({ title: 'Este conteo ya fue terminado', html: '<p>¿Quieres reabrirlo para corregir? Quedará registrado que se reabrió.</p>',
         buttons: [{ label: 'Ver diferencias', value: 'res' }, { label: 'Reabrir conteo', value: 'open', cls: 'primary' }] })
         .then((r) => {
-          if (r.value === 'open') { current.finishedAt = null; current.verifiedAt = null; current.reopened = (current.reopened || 0) + 1; save(); startCount(); }
+          if (r.value === 'open') { audit('Reabrió conteo'); current.finishedAt = null; current.verifiedAt = null; current.reopened = (current.reopened || 0) + 1; save(); startCount(); }
           else if (r.value === 'res') renderResults();
         });
       return;
     }
     show('count', current.nombre);
+    audit('Abrió conteo');
     $('#countKicker').textContent = [current.sucursal, current.tipo === 'inventario' && current.fechaSistema ? 'existencias al ' + current.fechaSistema : current.nombre].filter(Boolean).join(' · ');
     $('#countTitle').textContent = current.tipo === 'inventario' ? 'Conteo del inventario' : 'Conteo del pedido';
     $('#search').value = '';
@@ -738,7 +777,10 @@
     const prev = qty(item);
     if (n === prev) return;
     if (n) current.counts[item.id] = n; else delete current.counts[item.id];
-    if (log) current.log.push({ t: 'i', id: item.id, prev });
+    if (log) {
+      current.log.push({ t: 'i', id: item.id, prev });
+      audit('Registró cantidad', { producto: item.producto, sku: item.sku || item.codigo || null, detalle: `${prev} → ${n}` });
+    }
     current.startedAt = current.startedAt || Date.now();
     if (current.log.length > 300) current.log.shift();
     save();
@@ -767,6 +809,7 @@
   $('#countList').addEventListener('focusin', (e) => { if (e.target.classList.contains('qty')) e.target.select(); });
 
   $('#btnUndo').onclick = () => {
+    if (current.log.length) audit('Deshizo el último registro');
     const last = current.log.pop();
     if (!last) return flash('Nada para deshacer', 'info');
     if (last.t === 'i') {
@@ -792,6 +835,7 @@
     current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
     current.startedAt = current.startedAt || Date.now();
     ex.cantidad += amount;
+    audit('Agregó producto fuera de la lista', { producto: ex.producto, sku: ex.sku || ex.codigo || null, detalle: `${ex.cantidad - amount} → ${ex.cantidad}${ex.lote ? ' · lote ' + ex.lote : ''}` });
     save();
     renderExtras();
     renderProgress();
@@ -817,7 +861,9 @@
     const ex = current.extras.find((x) => x.id === xid);
     if (!ex) return;
     current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
+    const antes = ex.cantidad;
     ex.cantidad = Math.max(0, Math.round(fn(ex.cantidad)));
+    audit('Cambió cantidad de producto agregado', { producto: ex.producto, sku: ex.sku || ex.codigo || null, detalle: `${antes} → ${ex.cantidad}` });
     if (!ex.cantidad) current.extras = current.extras.filter((x) => x !== ex);
     save(); renderExtras(); renderProgress();
   }
@@ -1034,6 +1080,7 @@
       if (r.value !== 'ok') return;
       current.finishedAt = Date.now();
       current.contadoPor = (r.fields.por || '').trim();
+      audit('Finalizó conteo', { detalle: `${current.items.filter((i) => qty(i) > 0).length} productos con cantidad · ${current.items.filter((i) => !qty(i)).length} sin contar · ${current.extras.length} agregados` });
       try { localStorage.setItem('revision-responsable', current.contadoPor); } catch (e) { /* sin almacenamiento */ }
       save();
     }
@@ -1058,20 +1105,33 @@
     const p = (sku && catalogIndex().sku.get(normCode(sku))) || (ean && catalogIndex().ean.get(normCode(ean)));
     return p && p.precio ? p.precio : 0;
   }
+  // Revisión del QF por producto: { decision: 'correcta' | 'corregida', cantidad, obs, por, ts, seg, origen }.
+  // Compatibilidad: los recuentos antiguos (o.recount) se leen como "corregida".
+  function reviewOf(o, id) {
+    const r = (o.review || {})[id];
+    if (r) return r;
+    const old = (o.recount || {})[id];
+    return old != null ? { decision: 'corregida', cantidad: old, obs: '', por: o.recountBy || '', ts: null, seg: null, origen: 'diferencia' } : null;
+  }
+  const sampledIds = (o) => new Set((o.samples || []).flatMap((m) => m.ids));
+
   function computeResults(o) {
     const t = T(o);
-    const rec = o.recount || {};
+    const sampled = sampledIds(o);
     const mk = (base, contadoAux, esperado, estadoExtra) => {
-      const r = rec[base.id];
-      const contado = r ?? contadoAux;
+      const rv = reviewOf(o, base.id);
+      const recuento = rv && rv.decision === 'corregida' ? rv.cantidad : null;
+      const contado = recuento ?? contadoAux;
       const dif = contado - esperado;
+      const difAux = contadoAux - esperado;
       let estado = estadoExtra || 'OK';
       if (!estadoExtra) {
         if (dif < 0) estado = contado === 0 ? t.noLlego : 'Faltante';
         else if (dif > 0) estado = 'Sobrante';
       }
       const precio = base.precio || priceFor(base.sku, base.codigo);
-      return { ...base, contadoAux, recuento: r ?? null, contado, esperado, dif, estado, precio, valor: +(dif * precio).toFixed(2) };
+      return { ...base, contadoAux, recuento, review: rv, muestra: sampled.has(base.id), contado, esperado, dif, difAux, estado, precio,
+        valor: +(dif * precio).toFixed(2), valorAux: +(difAux * precio).toFixed(2) };
     };
     const rows = o.items.map((i) => mk({ id: i.id, codigo: i.codigo, sku: i.sku || '', categoria: i.categoria || '', producto: i.producto, lote: i.lote, precio: i.precio },
       o.counts[i.id] || 0, i.cantidad));
@@ -1081,13 +1141,15 @@
     }
     return rows;
   }
+  // Lo que el QF debe revisar: toda desviación del conteo del auxiliar y toda la muestra aleatoria.
+  const mustReview = (r) => r.difAux !== 0 || r.muestra;
 
-  // Clasificación ABC de las desviaciones: A = 80 % del valor, B = siguiente 15 %, C = resto.
+  // Clasificación ABC de las desviaciones del conteo: A = 80 % del valor, B = siguiente 15 %, C = resto.
   // Sin costos, se ordena por unidades de diferencia.
   function classifyABC(rows) {
-    const diffs = rows.filter((r) => r.dif !== 0);
+    const diffs = rows.filter((r) => r.difAux !== 0);
     const byValue = diffs.some((r) => r.precio > 0);
-    const key = (r) => (byValue ? Math.abs(r.valor) : Math.abs(r.dif));
+    const key = (r) => (byValue ? Math.abs(r.valorAux) : Math.abs(r.difAux));
     diffs.sort((a, b) => key(b) - key(a));
     const total = diffs.reduce((s, r) => s + key(r), 0) || 1;
     let acc = 0;
@@ -1096,14 +1158,16 @@
       r.abc = before < 0.8 ? 'A' : before < 0.95 ? 'B' : 'C';
       acc += key(r);
     }
-    rows.forEach((r) => { if (r.dif === 0) r.abc = ''; });
-    return { byValue, order: diffs };
+    rows.forEach((r) => { if (r.difAux === 0) r.abc = ''; });
+    return { byValue, order: diffs, key };
   }
 
   function renderResults() {
-    if (!isStaff()) return renderHome();
+    if (!isStaff()) { audit('Intento de ver el reporte de desviaciones', { resultado: 'denegado' }); return renderHome(); }
     show('results', current.nombre);
     $('#abcFilter').value = '';
+    $('#reportSearch').value = '';
+    audit('Abrió reporte de desviaciones');
     renderSummary();
     renderResultsTable();
   }
@@ -1118,11 +1182,14 @@
     const ok = rows.length - order.length;
     const pct = rows.length ? Math.round((ok / rows.length) * 100) : 0;
     const nA = order.filter((r) => r.abc === 'A'), nB = order.filter((r) => r.abc === 'B'), nC = order.filter((r) => r.abc === 'C');
-    const verA = nA.filter((r) => r.recuento !== null).length, verAll = order.filter((r) => r.recuento !== null).length;
-    const vPct = order.length ? Math.round((verAll / order.length) * 100) : 100;
+    const req = rows.filter(mustReview);
+    const done = req.filter((r) => r.review).length;
+    const doneA = nA.filter((r) => r.review).length;
+    const samp = rows.filter((r) => r.muestra);
+    const vPct = req.length ? Math.round((done / req.length) * 100) : 100;
     const dur = current.startedAt && current.finishedAt ? fmtDur(current.finishedAt - current.startedAt) : '—';
-    const money = (v) => (Math.abs(v) >= 1e6 ? '$ ' + (v / 1e6).toLocaleString('es', { maximumFractionDigits: 1 }) + ' M' : '$ ' + Math.round(v).toLocaleString('es'));
-    const prod = (n) => `${n.toLocaleString('es')} ${n === 1 ? 'producto' : 'productos'}`;
+    const money = (v) => (Math.abs(v) >= 1e6 ? '$ ' + (v / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' M' : '$ ' + Math.round(v).toLocaleString('es-CL'));
+    const prod = (n) => `${n.toLocaleString('es-CL')} ${n === 1 ? 'producto' : 'productos'}`;
     $('#summary').innerHTML = `
       <div class="page-head">
         <div>
@@ -1131,77 +1198,212 @@
         </div>
         ${current.verifiedAt ? `<span class="pill ok big-pill">${ic('check')} Aprobado por ${esc(current.verifiedBy || 'QF')} · ${fmtDate(current.verifiedAt)}</span>` : ''}
       </div>
-      ${byValue || !order.length ? '' : `<div class="load-status warn" style="margin-bottom:14px">${ic('alert')}<span>Sin costos cargados: el orden ABC se calcula por <b>unidades</b> de diferencia. Para ordenarlo por valor, carga la lista de precios en Menú → Maestro de productos.</span></div>`}
+      ${byValue || !order.length ? '' : `<div class="load-status warn" style="margin-bottom:14px">${ic('alert')}<span>Sin costos cargados: el orden ABC se calcula por <b>unidades</b> de diferencia. Para ordenarlo por valor, carga los costos en Menú → Maestro de productos.</span></div>`}
       <div class="kpis five">
-        <div class="kpi ${order.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok.toLocaleString('es')} de ${rows.length.toLocaleString('es')} líneas sin desviación</div><div class="meter"><span style="width:${pct}%"></span></div></div>
-        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${byValue ? money(vFalt) : uFalt.toLocaleString('es')}</div><div class="s">${uFalt.toLocaleString('es')} unid. · ${prod(falt.length)}</div></div>
-        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${byValue ? money(vSobr) : uSobr.toLocaleString('es')}</div><div class="s">${uSobr.toLocaleString('es')} unid. · ${prod(sobr.length)}</div></div>
+        <div class="kpi ${order.length ? '' : 'ok'}"><div class="l">Exactitud del conteo</div><div class="v">${pct}%</div><div class="s">${ok.toLocaleString('es-CL')} de ${rows.length.toLocaleString('es-CL')} líneas sin desviación</div><div class="meter"><span style="width:${pct}%"></span></div></div>
+        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${byValue ? money(vFalt) : uFalt.toLocaleString('es-CL')}</div><div class="s">${uFalt.toLocaleString('es-CL')} unid. · ${prod(falt.length)}</div></div>
+        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${byValue ? money(vSobr) : uSobr.toLocaleString('es-CL')}</div><div class="s">${uSobr.toLocaleString('es-CL')} unid. · ${prod(sobr.length)}</div></div>
         <div class="kpi"><div class="l">Desviaciones ABC</div><div class="v abc-v"><span class="abc A">A ${nA.length}</span><span class="abc B">B ${nB.length}</span><span class="abc C">C ${nC.length}</span></div><div class="s">${byValue ? 'por valor' : 'por unidades'} · A = 80 % del total</div></div>
-        <div class="kpi ${vPct === 100 ? 'ok' : ''}"><div class="l">Verificación QF</div><div class="v">${verAll} / ${order.length}</div><div class="s">Clase A: ${verA} de ${nA.length} recontadas</div><div class="meter"><span style="width:${vPct}%"></span></div></div>
+        <div class="kpi ${vPct === 100 ? 'ok' : ''}"><div class="l">Revisión QF</div><div class="v">${done.toLocaleString('es-CL')} / ${req.length.toLocaleString('es-CL')}</div><div class="s">Clase A: ${doneA} de ${nA.length}${samp.length ? ` · aleatorias: ${samp.filter((r) => r.review).length} de ${samp.length}` : ''}</div><div class="meter"><span style="width:${vPct}%"></span></div></div>
       </div>`;
     $('#btnApprove').hidden = !!current.verifiedAt;
+    $('#btnRandom').hidden = !!current.verifiedAt;
   }
 
   function renderResultsTable() {
     const rows = computeResults(current);
-    const { byValue } = classifyABC(rows);
-    const only = $('#onlyDiffs').checked;
-    const cls = $('#abcFilter').value;
+    const { key } = classifyABC(rows);
+    const f = $('#abcFilter').value;
+    const q = normText($('#reportSearch').value);
     const rank = { A: 0, B: 1, C: 2, '': 3 };
-    const key = (r) => (byValue ? Math.abs(r.valor) : Math.abs(r.dif));
-    const list = rows.filter((r) => (!only || r.dif !== 0 || r.recuento !== null || evOf(current, r.id)) && (!cls || r.abc === cls))
-      .sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a) || a.producto.localeCompare(b.producto, 'es'));
+    let list;
+    if (q) list = rows.filter((r) => normText(`${r.producto} ${r.sku} ${r.codigo} ${r.lote} ${r.categoria}`).includes(q));
+    else {
+      const pass = {
+        '': (r) => mustReview(r) || r.review || evOf(current, r.id),
+        pend: (r) => mustReview(r) && !r.review,
+        rev: (r) => !!r.review,
+        A: (r) => r.abc === 'A', B: (r) => r.abc === 'B', C: (r) => r.abc === 'C',
+        muestra: (r) => r.muestra,
+        todo: () => true,
+      }[f] || (() => true);
+      list = rows.filter(pass);
+    }
+    list.sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a) || a.producto.localeCompare(b.producto, 'es'));
     if (!list.length) {
-      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} ${cls ? 'No hay desviaciones clase ' + cls + '.' : 'Todo correcto: ' + T(current).ok + '.'}</div>`;
+      const msg = q ? `No hay productos que coincidan con “${esc($('#reportSearch').value)}”.`
+        : f === 'pend' ? 'No quedan desviaciones pendientes de revisión.' : f === 'muestra' ? 'Aún no hay revisión aleatoria. Usa el botón Revisión aleatoria.'
+          : f ? 'No hay productos en esta vista.' : 'Todo correcto: ' + T(current).ok + '.';
+      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} ${msg}</div>`;
       return;
     }
     const t = T(current);
     const locked = !!current.verifiedAt;
     const shown = list.slice(0, 400);
     $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
-      <thead><tr><th>Clase</th><th>Producto</th><th class="num">${t.debia}</th><th class="num">Contado</th><th class="num">Recuento QF</th><th class="num">Dif.</th><th class="num">Valor</th><th>Estado</th></tr></thead>
-      <tbody>${shown.map((r) => `<tr data-rid="${r.id}" class="${r.recuento !== null ? 'verified' : ''}">
+      <thead><tr><th>Clase</th><th>Producto</th><th class="num">${t.debia}</th><th class="num">Contado</th><th class="num">Dif.</th><th class="num">Valor</th><th>Revisión QF</th></tr></thead>
+      <tbody>${shown.map((r) => {
+        const rv = r.review;
+        const revTxt = rv ? (rv.decision === 'corregida' ? `Corregida a ${rv.cantidad}` : 'Cantidad correcta') : '';
+        return `<tr data-rid="${r.id}" class="${rv ? 'verified' : ''}">
         <td data-label="Clase">${r.abc ? `<span class="abc ${r.abc}">${r.abc}</span>` : ''}</td>
-        <td data-label="Producto" class="c-prod"><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>${evHtml(r.id)}</td>
-        <td data-label="${t.debia}" class="num">${r.esperado.toLocaleString('es')}</td>
-        <td data-label="Contado" class="num">${r.contadoAux.toLocaleString('es')}</td>
-        <td data-label="Recuento QF" class="num">${locked ? (r.recuento ?? '—') : `<input class="rec" type="number" inputmode="numeric" min="0" value="${r.recuento ?? ''}" placeholder="—" aria-label="Recuento del QF">`}</td>
-        <td data-label="Dif." class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif.toLocaleString('es')}</td>
-        <td data-label="Valor" class="num">${r.precio ? '$ ' + Math.round(r.valor).toLocaleString('es') : '<span class="muted">—</span>'}</td>
-        <td data-label="Estado"><div class="state-cell"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${r.recuento !== null ? `<span class="pill ok">${ic('check')} verificado</span>` : ''}${evButton(current, r.id, 'data-rev')}</div></td>
-      </tr>`).join('')}</tbody></table></div>
-      ${list.length > shown.length ? `<p class="small muted" style="padding:10px 14px;margin:0">Mostrando ${shown.length} de ${list.length.toLocaleString('es')}. Filtra por clase o exporta a Excel para ver todo.</p>` : ''}</div>`;
+        <td data-label="Producto" class="c-prod"><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>
+          <div class="state-cell" style="margin-top:6px"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${r.muestra ? '<span class="pill sample">Aleatoria</span>' : ''}</div>${evHtml(r.id)}</td>
+        <td data-label="${t.debia}" class="num">${r.esperado.toLocaleString('es-CL')}</td>
+        <td data-label="Contado" class="num">${r.contadoAux.toLocaleString('es-CL')}${r.recuento !== null ? `<div class="sub">QF: ${r.recuento.toLocaleString('es-CL')}</div>` : ''}</td>
+        <td data-label="Dif." class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif.toLocaleString('es-CL')}</td>
+        <td data-label="Valor" class="num">${r.precio ? '$ ' + Math.round(r.valor).toLocaleString('es-CL') : '<span class="muted">—</span>'}</td>
+        <td data-label="Revisión QF"><div class="rev-cell">
+          ${rv ? `<span class="pill ok">${ic('check')} ${esc(revTxt)}</span><span class="sub">${esc(rv.por || '')}${rv.ts ? ' · ' + fmtDate(rv.ts) : ''}${rv.seg ? ' · ' + fmtSecs(rv.seg) : ''}</span>${rv.obs ? `<span class="obs">“${esc(rv.obs)}”</span>` : ''}`
+            : mustReview(r) ? '<span class="pill warn">Pendiente</span>' : ''}
+          <div class="state-cell">${locked ? '' : `<button class="btn sm ${rv ? 'ghost' : 'primary'}" data-review="${r.id}">${ic(rv ? 'edit' : 'check')} ${rv ? 'Editar' : 'Revisar'}</button>`}${evButton(current, r.id, 'data-rev')}</div>
+        </div></td>
+      </tr>`;
+      }).join('')}</tbody></table></div>
+      ${list.length > shown.length ? `<p class="small muted" style="padding:10px 14px;margin:0">Mostrando ${shown.length} de ${list.length.toLocaleString('es-CL')}. Usa el buscador o los filtros, o exporta a Excel para ver todo.</p>` : ''}</div>`;
     fillPhotos($('#resultsTable'));
   }
 
-  // Recuento del QF: reemplaza la cantidad del auxiliar en el cálculo final.
-  $('#resultsTable').addEventListener('change', (e) => {
-    if (!e.target.classList.contains('rec') || current.verifiedAt) return;
-    const id = e.target.closest('tr').dataset.rid;
-    current.recount = current.recount || {};
-    const v = e.target.value.trim();
-    if (v === '') delete current.recount[id]; else current.recount[id] = Math.max(0, Math.round(parseNum(v)));
-    current.recountBy = me ? me.nombre : '';
+  // ---------- Revisión de un producto por el QF (se mide el tiempo que lo tuvo abierto) ----------
+  async function openReview(id, draft = null, startT = null) {
+    const rows = computeResults(current);
+    classifyABC(rows);
+    const r = rows.find((x) => x.id === id);
+    if (!r || current.verifiedAt || !isStaff()) return;
+    const origen = r.difAux !== 0 ? 'diferencia' : r.muestra ? 'aleatoria' : 'búsqueda';
+    const t0 = startT || Date.now();
+    const rv = r.review;
+    const pre = draft || (rv ? { decision: rv.decision, cantidad: rv.cantidad, obs: rv.obs } : {});
+    const ev = evOf(current, r.id);
+    const t = T(current);
+    const masMenos = r.difAux > 0 ? `realmente hay <b>${r.difAux} más</b> de lo que dice ${t.debia.toLowerCase()}` : r.difAux < 0 ? `realmente hay <b>${-r.difAux} menos</b> de lo que dice ${t.debia.toLowerCase()}` : 'el conteo coincide';
+    const p = ask({ title: r.producto,
+      html: `<p class="small muted">${[r.sku && 'Material ' + esc(r.sku), r.codigo && 'EAN ' + esc(r.codigo), r.lote && 'Lote ' + esc(r.lote), r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}${r.abc ? ` · <span class="abc ${r.abc}">${r.abc}</span>` : ''}${r.muestra ? ' · <span class="pill sample">Aleatoria</span>' : ''}</p>
+        <div class="rev-facts">
+          <div><span>${t.debia}</span><b>${r.esperado.toLocaleString('es-CL')}</b></div>
+          <div><span>Contó ${esc(current.contadoPor || 'auxiliar')}</span><b>${r.contadoAux.toLocaleString('es-CL')}</b></div>
+          <div><span>Diferencia</span><b class="${r.difAux < 0 ? 'd-neg' : r.difAux > 0 ? 'd-pos' : ''}">${r.difAux > 0 ? '+' : ''}${r.difAux}</b></div>
+          <div><span>Valor</span><b>${r.precio ? '$ ' + Math.round(r.valorAux).toLocaleString('es-CL') : '—'}</b></div>
+        </div>
+        ${ev ? `<p class="small"><b>Evidencia del conteo:</b> ${esc(ev.motivo || '')}${ev.motivo && ev.nota ? ' · ' : ''}${esc(ev.nota || '')}${ev.fotos.length ? ` · ${ev.fotos.length} foto(s)` : ''}</p>` : ''}
+        <div class="choice-list">
+          <label class="choice"><input type="radio" name="decision" value="correcta" ${pre.decision === 'correcta' ? 'checked' : ''}>
+            <span><b>La cantidad contada es correcta</b><small>Lo verifiqué: ${masMenos}.</small></span></label>
+          <label class="choice"><input type="radio" name="decision" value="corregida" ${pre.decision === 'corregida' ? 'checked' : ''}>
+            <span><b>Corregir la cantidad</b><small>Al recontar, la cantidad real es:</small>
+            <input class="choice-qty" name="cantidad" type="number" inputmode="numeric" min="0" placeholder="Cantidad" value="${pre.decision === 'corregida' && pre.cantidad != null ? esc(pre.cantidad) : ''}"></span></label>
+        </div>
+        <label>Observación<textarea name="obs" rows="2" placeholder="Ej: 2 cajas estaban en bodega; producto vencido apartado">${esc(pre.obs || '')}</textarea></label>
+        <p class="rev-timer" id="revTimer">Revisando desde hace 0 s</p>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar revisión', value: 'ok', cls: 'primary' }] });
+    const tick = setInterval(() => { const el = $('#revTimer'); if (el) el.textContent = 'Revisando desde hace ' + fmtSecs(Math.round((Date.now() - t0) / 1000)); }, 1000);
+    // Escribir una cantidad marca la opción "Corregir".
+    const qtyIn = $('#dlgBody [name=cantidad]');
+    qtyIn.addEventListener('input', () => { $('#dlgBody [value=corregida]').checked = true; });
+    const res = await p;
+    clearInterval(tick);
+    // Si falta algo, se avisa y se vuelve a abrir con lo ya escrito (el tiempo sigue corriendo).
+    if (res.value === 'ok' && (!res.fields.decision || (res.fields.decision === 'corregida' && String(res.fields.cantidad || '').trim() === ''))) {
+      const keep = res.fields;
+      const back = await ask({ title: 'Falta completar', html: `<p>${!keep.decision ? 'Elige si la cantidad es correcta o si hay que corregirla.' : 'Escribe la cantidad real que encontraste al recontar.'}</p>`,
+        buttons: [{ label: 'Descartar', value: '' }, { label: 'Volver a la revisión', value: 'back', cls: 'primary' }] });
+      if (back.value === 'back') return openReview(id, keep, t0);
+      res.value = '';
+    }
+    const seg = Math.round((Date.now() - t0) / 1000);
+    const base = { producto: r.producto, sku: r.sku || r.codigo || null, duracionSeg: seg };
+    if (res.value !== 'ok') {
+      audit('Vio producto sin guardar revisión', { ...base, detalle: `origen: ${origen}` });
+      return;
+    }
+    const f = res.fields;
+    const nueva = { decision: f.decision, cantidad: f.decision === 'corregida' ? Math.max(0, Math.round(parseNum(f.cantidad))) : null,
+      obs: (f.obs || '').trim(), por: me.nombre, porId: me.id, ts: Date.now(), seg: (rv && rv.seg ? rv.seg : 0) + seg, origen };
+    current.review = current.review || {};
+    current.review[id] = nueva;
+    if (current.recount) delete current.recount[id];
     save();
+    audit(rv ? 'Modificó revisión de producto' : 'Revisó producto', { ...base,
+      detalle: `${nueva.decision === 'corregida' ? `corregida a ${nueva.cantidad}` : 'cantidad correcta'} · ${t.debia.toLowerCase()} ${r.esperado}, contado ${r.contadoAux}${rv ? ` (antes: ${rv.decision === 'corregida' ? 'corregida a ' + rv.cantidad : 'correcta'})` : ''} · origen: ${origen}${nueva.obs ? ' · obs: ' + nueva.obs : ''}` });
     renderSummary();
     renderResultsTable();
+  }
+
+  $('#resultsTable').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-review]');
+    if (b) openReview(b.dataset.review);
   });
-  $('#abcFilter').onchange = () => renderResultsTable();
+  $('#abcFilter').onchange = () => { audit('Filtró reporte', { detalle: $('#abcFilter').options[$('#abcFilter').selectedIndex].textContent }); renderResultsTable(); };
+  let searchLogTimer, lastLogged = '';
+  $('#reportSearch').oninput = () => {
+    renderResultsTable();
+    clearTimeout(searchLogTimer);
+    const v = $('#reportSearch').value.trim();
+    if (v.length >= 3 && v !== lastLogged) searchLogTimer = setTimeout(() => { lastLogged = v; audit('Buscó producto en el reporte', { detalle: v }); }, 1200);
+  };
+
+  // ---------- Revisión aleatoria ----------
+  $('#btnRandom').onclick = async () => {
+    const rows = computeResults(current).filter((r) => !r.review && !r.muestra && current.items.some((i) => i.id === r.id));
+    const withPrice = rows.some((r) => r.precio > 0);
+    const keyOf = (r) => (withPrice ? r.precio : r.esperado);
+    const sorted = rows.slice().sort((a, b) => keyOf(b) - keyOf(a));
+    const n = sorted.length;
+    const tiers = { alto: sorted.slice(0, Math.ceil(n * 0.2)), medio: sorted.slice(Math.ceil(n * 0.2), Math.ceil(n * 0.5)), bajo: sorted.slice(Math.ceil(n * 0.5)), todos: sorted };
+    const label = withPrice ? { alto: 'Más caros', medio: 'Costo medio', bajo: 'Más baratos' } : { alto: 'Más unidades', medio: 'Unidades medias', bajo: 'Menos unidades' };
+    const r = await ask({ title: 'Revisión aleatoria',
+      html: `<p class="small muted">La app elige productos al azar para recontar, incluidos los que no tuvieron diferencia. ${withPrice ? 'Los grupos se arman por costo unitario.' : 'Sin costos cargados, los grupos se arman por cantidad en sistema.'}</p>
+        <div class="choice-list">
+          ${['alto', 'medio', 'bajo', 'todos'].map((k, i) => `<label class="choice"><input type="radio" name="estrato" value="${k}" ${i === 0 ? 'checked' : ''}>
+            <span><b>${k === 'todos' ? 'Cualquiera' : label[k]}</b><small>${k === 'alto' ? '20 % superior' : k === 'medio' ? '30 % siguiente' : k === 'bajo' ? '50 % restante' : 'todo el documento'} · ${tiers[k].length.toLocaleString('es-CL')} productos disponibles</small></span></label>`).join('')}
+        </div>
+        <label>¿Cuántos productos?<input name="cantidad" type="number" min="1" max="200" value="10"></label>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Elegir al azar', value: 'ok', cls: 'primary' }] });
+    if (r.value !== 'ok') return;
+    const pool = tiers[r.fields.estrato] || [];
+    const k = Math.min(pool.length, Math.max(1, Math.round(parseNum(r.fields.cantidad) || 10)));
+    if (!k) return info('Sin productos', 'No quedan productos disponibles en ese grupo.');
+    // Selección al azar sin repetir (Fisher-Yates con números aleatorios del navegador).
+    const arr = pool.slice();
+    const rnd = new Uint32Array(arr.length);
+    crypto.getRandomValues(rnd);
+    for (let i = arr.length - 1; i > 0; i--) { const j = rnd[i] % (i + 1); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+    const pick = arr.slice(0, k);
+    current.samples = current.samples || [];
+    const estrato = r.fields.estrato === 'todos' ? 'cualquiera' : label[r.fields.estrato].toLowerCase();
+    current.samples.push({ id: uid(), ts: Date.now(), por: me.nombre, porId: me.id, estrato, ids: pick.map((x) => x.id) });
+    save();
+    audit('Creó revisión aleatoria', { detalle: `${k} productos · grupo: ${estrato} · ${pick.slice(0, 15).map((x) => x.sku || x.producto).join(', ')}${k > 15 ? '…' : ''}` });
+    $('#abcFilter').value = 'muestra';
+    $('#reportSearch').value = '';
+    renderSummary();
+    renderResultsTable();
+  };
+
   $('#btnApprove').onclick = async () => {
     const rows = computeResults(current);
-    const { order } = classifyABC(rows);
-    const pendA = order.filter((r) => r.abc === 'A' && r.recuento === null).length;
+    classifyABC(rows);
+    const pend = rows.filter((r) => mustReview(r) && !r.review);
+    if (pend.length) {
+      const r = await ask({ title: 'Aún no se puede aprobar',
+        html: `<p>Faltan <b>${pend.length.toLocaleString('es-CL')}</b> productos por revisar (${pend.filter((x) => x.abc === 'A').length} de clase A${pend.some((x) => x.muestra) ? `, ${pend.filter((x) => x.muestra).length} de la revisión aleatoria` : ''}).</p><p>Todas las desviaciones deben quedar revisadas antes de aprobar.</p>`,
+        buttons: [{ label: 'Cerrar', value: '' }, { label: 'Ver pendientes', value: 'ver', cls: 'primary' }] });
+      audit('Intento de aprobar con revisiones pendientes', { resultado: 'denegado', detalle: `${pend.length} pendientes` });
+      if (r.value === 'ver') { $('#abcFilter').value = 'pend'; $('#reportSearch').value = ''; renderResultsTable(); }
+      return;
+    }
     const r = await ask({ title: `Aprobar ${T(current).doc}`,
-      html: `<p>${pendA ? `Quedan <b>${pendA}</b> desviaciones clase A sin recontar.` : 'Todas las desviaciones clase A están recontadas.'}</p>
-        <p>Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>`,
+      html: `<p>Todas las desviaciones están revisadas.</p><p>Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar', value: 'ok', cls: 'primary' }] });
     if (r.value !== 'ok') return;
     current.verifiedAt = Date.now();
     current.verifiedBy = me.nombre;
     save();
+    audit(`Aprobó ${T(current).doc}`, { detalle: `${rows.filter((x) => x.review).length} productos revisados` });
     renderSummary();
     renderResultsTable();
   };
+  $('#btnDocLog').onclick = () => renderLog({ docId: current.id });
 
   function evHtml(id) {
     const ev = evOf(current, id);
@@ -1218,10 +1420,12 @@
     if (r) openEvidence(r.id, r.producto + (r.lote ? ' · ' + r.lote : ''), () => renderResultsTable());
   });
 
-  $('#onlyDiffs').onchange = () => renderResultsTable();
   $('#btnBackToCount').onclick = () => startCount();
-  $('#btnPrint').onclick = () => window.print();
+  $('#btnPrint').onclick = () => { audit('Imprimió reporte'); window.print(); };
 
+  // Evita que Excel ejecute fórmulas escondidas en textos (=, +, -, @ al inicio).
+  const safeCell = (v) => (typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? "'" + v : v);
+  const safeRow = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, safeCell(v)]));
   function exportRows() {
     const inv = current.tipo === 'inventario';
     const t = T(current);
@@ -1234,20 +1438,25 @@
       const base = inv
         ? { 'Clase ABC': r.abc, 'Material': r.sku, 'Código de barras': r.codigo, 'Producto': r.producto, 'Categoría': r.categoria }
         : { 'Clase ABC': r.abc, 'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote };
-      return Object.assign(base, { [t.debia]: r.esperado, 'Contado auxiliar': r.contadoAux, 'Recuento QF': r.recuento ?? '', 'Cantidad final': r.contado,
+      const rv = r.review;
+      return safeRow(Object.assign(base, { [t.debia]: r.esperado, 'Contado auxiliar': r.contadoAux, 'Recuento QF': r.recuento ?? '', 'Cantidad final': r.contado,
         'Diferencia': r.dif, 'Costo unitario': r.precio || '', 'Valor diferencia': r.precio ? r.valor : '', 'Estado': r.estado,
-        'Motivo': ev?.motivo || '', 'Nota': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 });
+        'Revisión QF': rv ? (rv.decision === 'corregida' ? 'Corregida' : 'Cantidad correcta') : (mustReview(r) ? 'Pendiente' : ''),
+        'Observación QF': rv?.obs || '', 'Revisado por': rv?.por || '', 'Fecha revisión': rv?.ts ? fmtDate(rv.ts) : '', 'Tiempo de revisión (s)': rv?.seg ?? '',
+        'Revisión aleatoria': r.muestra ? 'Sí' : '',
+        'Motivo (conteo)': ev?.motivo || '', 'Nota (conteo)': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 }));
     });
   }
   $('#btnExportXlsx').onclick = () => {
     const ws = XLSX.utils.json_to_sheet(exportRows());
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
-    const info = [[T(current).Doc, current.nombre], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Existencias al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
+    const info = [[T(current).Doc, safeCell(current.nombre)], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Existencias al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
       ['Veces reabierto', current.reopened || 0], ['Aprobado por', current.verifiedBy || ''], ['Aprobado el', current.verifiedAt ? fmtDate(current.verifiedAt) : '']];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');
     XLSX.writeFile(wb, safeName(current.nombre) + '-diferencias.xlsx');
+    audit('Exportó reporte a Excel', { detalle: `${exportRows().length} filas` });
   };
   $('#btnExportCsv').onclick = () => {
     const rows = exportRows();
@@ -1255,6 +1464,7 @@
     const cell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const csv = '﻿' + [head.join(';'), ...rows.map((r) => head.map((h) => cell(r[h])).join(';'))].join('\r\n');
     download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), safeName(current.nombre) + '-diferencias.csv');
+    audit('Exportó reporte a CSV', { detalle: `${rows.length} filas` });
   };
   $('#btnShareResults').onclick = async () => {
     const all = computeResults(current);
@@ -1268,6 +1478,7 @@
         `${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}${ev && ev.motivo ? ' — ' + ev.motivo : ''}${ev && ev.nota ? ': ' + ev.nota : ''}`;
     });
     const nFotos = rows.reduce((s, r) => s + (evOf(current, r.id)?.fotos.length || 0), 0);
+    audit('Compartió reporte', { detalle: `${lines.length} líneas · ${nFotos} fotos` });
     const text = `${current.tipo === 'inventario' ? 'Inventario' : 'Revisión'} ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
       (current.contadoPor ? `Contó: ${current.contadoPor}\n` : '') +
       (current.verifiedBy ? `Aprobado por: ${current.verifiedBy}\n` : '') +
@@ -1307,6 +1518,18 @@
   }
   function saveUsers() { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
   const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const randHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  // Contraseñas: mínimo 6 caracteres y no de las más comunes.
+  const COMMON = ['123456', '1234567', '12345678', '123456789', '111111', '000000', 'password', 'contraseña', 'contrasena', 'qwerty', 'abc123', 'admin', 'admin123', 'farmacia', 'sucursal'];
+  function passProblem(p, usuario = '') {
+    if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres.';
+    if (COMMON.includes(p.toLowerCase()) || (usuario && p.toLowerCase().includes(usuario.toLowerCase()))) return 'Esa contraseña es muy fácil de adivinar. Usa otra.';
+    return '';
+  }
+  // Bloqueo temporal tras 5 intentos fallidos (por usuario, en este equipo).
+  const LOCK_KEY = 'revision-intentos-v1';
+  const lockInfo = (u) => loadJSON(LOCK_KEY, {})[u] || { n: 0, hasta: 0 };
+  function setLock(u, v) { const all = loadJSON(LOCK_KEY, {}); if (v) all[u] = v; else delete all[u]; try { localStorage.setItem(LOCK_KEY, JSON.stringify(all)); } catch (e) { /* sin almacenamiento */ } }
   async function hashPass(pass, salt) {
     if (!crypto.subtle) throw new Error('Este navegador no permite guardar contraseñas de forma segura (abre la app con https).');
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
@@ -1314,7 +1537,7 @@
     return toB64(bits);
   }
   async function makeUser({ nombre, usuario, pass, rol = 'auxiliar', sucursal = '' }) {
-    const salt = uid() + uid();
+    const salt = randHex(16);
     return { id: uid(), nombre: nombre.trim(), usuario: usuario.trim().toLowerCase(), rol, sucursal: sucursal.trim(), salt, hash: await hashPass(pass, salt), creado: Date.now() };
   }
   const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
@@ -1360,22 +1583,52 @@
       if (!users.length) {
         const nombre = $('#setupNombre').value.trim();
         if (!nombre || !usuario) return loginError('Completa el nombre y el usuario.');
-        if (pass.length < 6) return loginError('La contraseña debe tener al menos 6 caracteres.');
+        const pp = passProblem(pass, usuario);
+        if (pp) return loginError(pp);
         if (pass !== $('#setupPass2').value) return loginError('Las contraseñas no coinciden.');
         const u = await makeUser({ nombre, usuario, pass, rol: 'admin' });
         users.push(u);
         saveUsers();
+        setSession(u);
+        audit('Configuró la app y creó el administrador', { detalle: u.usuario });
         return afterLogin(u);
       }
+      const lk = lockInfo(usuario);
+      if (lk.hasta > Date.now()) {
+        audit('Inicio de sesión bloqueado', { usuario, resultado: 'denegado', detalle: 'demasiados intentos fallidos' });
+        return loginError(`Demasiados intentos fallidos. Espera ${Math.ceil((lk.hasta - Date.now()) / 60000)} min y vuelve a intentar.`);
+      }
       const u = users.find((x) => x.usuario === usuario);
-      if (!u || (await hashPass(pass, u.salt)) !== u.hash) return loginError('Usuario o contraseña incorrectos.');
+      if (!u || (await hashPass(pass, u.salt)) !== u.hash) {
+        const n = lk.n + 1;
+        setLock(usuario, { n, hasta: n >= 5 ? Date.now() + 5 * 60000 : 0 });
+        audit('Inicio de sesión fallido', { usuario, resultado: 'denegado', detalle: `intento ${n}${n >= 5 ? ' · bloqueado 5 min' : ''}` });
+        return loginError(n >= 5 ? 'Demasiados intentos fallidos. Espera 5 min y vuelve a intentar.' : 'Usuario o contraseña incorrectos.');
+      }
+      setLock(usuario, null);
       afterLogin(u);
     } catch (err) { loginError(err.message); }
     finally { btn.disabled = false; }
   };
 
-  function afterLogin(u) {
+  // Cierre de sesión por inactividad (30 min), útil en tablets compartidas.
+  const IDLE_MS = 30 * 60000;
+  let lastActivity = Date.now();
+  ['pointerdown', 'keydown', 'scroll'].forEach((ev) => document.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true, capture: true }));
+  setInterval(() => {
+    if (me && Date.now() - lastActivity > IDLE_MS) {
+      closeViewTimer();
+      audit('Sesión cerrada por inactividad');
+      if ($('#dlg').open) $('#dlg').close('');
+      showLogin();
+      loginError('Tu sesión se cerró por inactividad. Vuelve a entrar.');
+    }
+  }, 30000);
+
+  function afterLogin(u, restored = false) {
+    lastActivity = Date.now();
     setSession(u);
+    audit(restored ? 'Retomó sesión abierta' : 'Inicio de sesión');
     if (!checkHash()) renderHome();
   }
 
@@ -1383,15 +1636,18 @@
   $('#btnUser').onclick = async () => {
     if (!me) return;
     const opts = [
-      ...(isAdmin() ? [['users', 'users', 'Usuarios'], ['catalog', 'list', 'Maestro de productos'], ['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
+      ...(isAdmin() ? [['users', 'users', 'Usuarios'], ['catalog', 'list', 'Maestro de productos']] : []),
+      ...(isStaff() ? [['log', 'history', 'Bitácora']] : []),
+      ...(isAdmin() ? [['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
       ['pass', 'lock', 'Cambiar mi contraseña'], ['logout', 'logout', 'Cerrar sesión'],
     ];
     const r = await ask({ title: 'Mi cuenta',
       html: `<div class="menu-who"><span class="avatar">${esc(initials(me.nombre))}</span><div><b>${esc(me.nombre)}</b><div class="small muted">${esc(me.usuario)} · ${rolName(me.rol)}${me.sucursal ? ' · ' + esc(me.sucursal) : ''}</div></div></div>
         <div class="menu-list">${opts.map(([v, i, l]) => `<button class="btn" value="${v}">${ic(i)} ${l}</button>`).join('')}</div>`,
       buttons: [{ label: 'Cerrar', value: '' }] });
-    if (r.value === 'logout') showLogin();
+    if (r.value === 'logout') { closeViewTimer(); audit('Cierre de sesión'); showLogin(); }
     else if (r.value === 'users') renderUsers();
+    else if (r.value === 'log') renderLog();
     else if (r.value === 'catalog') renderCatalog();
     else if (r.value === 'export') exportConfig();
     else if (r.value === 'import') pickFile('.json', (f) => importConfig(f));
@@ -1414,11 +1670,13 @@
     if (r.value !== 'ok') return;
     const f = r.fields;
     if (!byAdmin && (await hashPass(f.actual, u.salt)) !== u.hash) return info('No se cambió', 'La contraseña actual no es correcta.');
-    if (f.nueva.length < 4) return info('No se cambió', 'La nueva contraseña debe tener al menos 4 caracteres.');
+    const pp = passProblem(f.nueva, u.usuario);
+    if (pp) return info('No se cambió', pp);
     if (f.nueva !== f.nueva2) return info('No se cambió', 'Las contraseñas no coinciden.');
-    u.salt = uid() + uid();
+    u.salt = randHex(16);
     u.hash = await hashPass(f.nueva, u.salt);
     saveUsers();
+    audit(byAdmin ? 'Cambió la contraseña de otro usuario' : 'Cambió su contraseña', { detalle: byAdmin ? u.usuario : null });
     info('Contraseña actualizada', byAdmin ? `${esc(u.nombre)} ya puede entrar con la nueva contraseña.` : 'Usa la nueva contraseña la próxima vez que entres.');
   }
   const info = (title, html) => ask({ title, html: `<p>${html}</p>`, buttons: [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] });
@@ -1469,11 +1727,15 @@
     if (users.some((x) => x.usuario === usuario && x !== u)) return info('No se guardó', `Ya existe el usuario <b>${esc(usuario)}</b>.`);
     if (u) {
       if (u.id === me.id && f.rol !== 'admin') return info('No se guardó', 'No puedes quitarte el rol de administrador a ti mismo.');
+      const antes = `${u.usuario} · ${rolName(u.rol)}`;
       Object.assign(u, { nombre: f.nombre.trim(), usuario, rol: f.rol, sucursal: f.sucursal.trim() });
+      audit('Editó usuario', { detalle: `${antes} → ${u.usuario} · ${rolName(u.rol)}${u.sucursal ? ' · ' + u.sucursal : ''}` });
       if (u.id === me.id) setSession(u);
     } else {
-      if ((f.pass || '').length < 4) return info('No se guardó', 'La contraseña inicial debe tener al menos 4 caracteres.');
+      const pp = passProblem(f.pass || '', usuario);
+      if (pp) return info('No se guardó', pp);
       users.push(await makeUser({ nombre: f.nombre, usuario, pass: f.pass, rol: f.rol, sucursal: f.sucursal }));
+      audit('Creó usuario', { detalle: `${usuario} · ${rolName(f.rol)}${f.sucursal.trim() ? ' · ' + f.sucursal.trim() : ''}` });
     }
     saveUsers();
     renderUsers();
@@ -1484,6 +1746,7 @@
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
     users = users.filter((x) => x !== u);
+    audit('Eliminó usuario', { detalle: `${u.usuario} · ${rolName(u.rol)}` });
     saveUsers();
     renderUsers();
   }
@@ -1492,6 +1755,7 @@
   function exportConfig() {
     const data = { tipo: 'revision-config', v: 1, exportado: Date.now(), usuarios: users, catalogo: catalog };
     download(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'configuracion-revision.json');
+    audit('Exportó configuración', { detalle: `${users.length} usuarios · ${(catalog.items || []).length} productos` });
   }
   async function importConfig(file) {
     let d;
@@ -1505,6 +1769,7 @@
     saveUsers();
     if (d.catalogo && Array.isArray(d.catalogo.items) && d.catalogo.items.length) setCatalog(d.catalogo);
     await info('Configuración importada', `${d.usuarios.length} usuarios${d.catalogo && d.catalogo.items ? ' y ' + d.catalogo.items.length + ' productos del maestro' : ''}. ${me ? '' : 'Ahora inicia sesión.'}`);
+    audit('Importó configuración', { detalle: `${d.usuarios.length} usuarios` });
     if (me) renderHome(); else showLogin();
   }
   $('#fileConfigSetup').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importConfig(f); };
@@ -1599,6 +1864,7 @@
       const items = parseCatalogRows(rows);
       if (!items.length) throw new Error('El archivo no tiene productos.');
       setCatalog({ items, actualizado: Date.now(), archivo: f.name });
+      audit('Cargó maestro de productos', { docId: null, doc: null, detalle: `${items.length} productos · ${f.name}` });
       renderCatalog();
       st.className = 'load-status ok'; st.hidden = false;
       st.innerHTML = `${ic('check')}<span>Maestro cargado: ${items.length.toLocaleString('es')} productos de ${esc(f.name)}.</span>`;
@@ -1642,6 +1908,7 @@
       }
       if (!upd && !added) throw new Error('No encontré precios válidos en el archivo.');
       setCatalog({ ...catalog, items, actualizado: Date.now(), precios: f.name });
+      audit('Cargó costos', { docId: null, doc: null, detalle: `${upd} actualizados · ${added} agregados · ${f.name}` });
       renderCatalog();
       st.className = 'load-status ok'; st.hidden = false;
       st.innerHTML = `${ic('check')}<span>Costos cargados: ${upd.toLocaleString('es')} productos actualizados${added ? `, ${added} agregados` : ''}.</span>`;
@@ -1652,6 +1919,7 @@
   };
 
   async function readSheetRows(f) {
+    if (tooBig(f)) throw new Error(`El archivo pesa más de ${MAX_MB} MB. Revisa que sea el correcto.`);
     if (/\.(csv|txt)$/i.test(f.name)) return parseDelimited(await f.text());
     const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
     return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
@@ -1704,6 +1972,7 @@
     st.className = 'load-status busy'; st.hidden = false;
     st.innerHTML = `<span class="spinner"></span><span>Leyendo ${esc(f.name)}…</span>`;
     try {
+      if (tooBig(f)) throw new Error(`El archivo pesa más de ${MAX_MB} MB. Revisa que sea el correcto.`);
       const rep = /\.pdf$/i.test(f.name) ? Importar.parseExistencias(await Importar.fromPdf(f)) : parseInventoryRows(await readSheetRows(f));
       if (!rep.items.length) throw new Error('No encontré productos en el reporte. Revisa que sea el reporte de existencias.');
       // Completa el código de barras con el maestro.
@@ -1761,8 +2030,98 @@
     });
     db.orders.push(o);
     save();
+    audit('Creó inventario', { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos · ${invDraft.archivo || ''}` });
     invDraft = null;
     openOrder(o.id);
+  };
+
+  // =========================================================
+  // BITÁCORA (pantalla para administrador y QF)
+  // =========================================================
+  let logRows = [];
+  let logLimit = 200;
+  async function renderLog(filter = {}) {
+    if (!isStaff()) { audit('Intento de ver la bitácora', { resultado: 'denegado' }); return renderHome(); }
+    const fromDoc = filter.docId ? current : null;
+    current = fromDoc;
+    show('log', 'Bitácora');
+    audit('Vio la bitácora', { docId: fromDoc ? fromDoc.id : null, doc: fromDoc ? fromDoc.nombre : null, detalle: fromDoc ? 'filtrada por documento' : null });
+    $('#logStatus').hidden = true;
+    logRows = (await Bitacora.all()).reverse();
+    logLimit = 200;
+    const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+    const fill = (sel, label, vals, fmt = (v) => v) => {
+      sel.innerHTML = `<option value="">${label}</option>` + vals.map((v) => `<option value="${esc(v)}">${esc(fmt(v))}</option>`).join('');
+    };
+    const names = {};
+    logRows.forEach((r) => { if (r.usuario) names[r.usuario] = r.nombre ? `${r.nombre} (${r.usuario})` : r.usuario; });
+    fill($('#logUser'), 'Todos los usuarios', uniq(logRows.map((r) => r.usuario)), (v) => names[v] || v);
+    fill($('#logAction'), 'Todas las acciones', uniq(logRows.map((r) => r.accion)));
+    const docs = {};
+    logRows.forEach((r) => { if (r.docId) docs[r.docId] = r.doc || r.docId; });
+    $('#logDoc').innerHTML = '<option value="">Todos los documentos</option>' + Object.entries(docs).map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('');
+    $('#logUser').value = ''; $('#logAction').value = ''; $('#logDoc').value = filter.docId || '';
+    $('#logFrom').value = ''; $('#logTo').value = ''; $('#logText').value = '';
+    renderLogList();
+  }
+  // Fecha local de Santiago (aaaa-mm-dd) para comparar con los filtros de fecha.
+  const dayKey = (ts) => { const p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ts)).forEach((x) => { p[x.type] = x.value; }); return `${p.year}-${p.month}-${p.day}`; };
+  function filteredLog() {
+    const u = $('#logUser').value, a = $('#logAction').value, d = $('#logDoc').value;
+    const from = $('#logFrom').value, to = $('#logTo').value, q = normText($('#logText').value);
+    return logRows.filter((r) => (!u || r.usuario === u) && (!a || r.accion === a) && (!d || r.docId === d)
+      && (!from || dayKey(r.ts) >= from) && (!to || dayKey(r.ts) <= to)
+      && (!q || normText(`${r.producto || ''} ${r.sku || ''} ${r.detalle || ''} ${r.doc || ''} ${r.nombre || ''} ${r.accion}`).includes(q)));
+  }
+  function renderLogList() {
+    const list = filteredLog();
+    const people = new Set(list.map((r) => r.usuario).filter(Boolean));
+    const reviews = list.filter((r) => /Revisó producto|Modificó revisión/.test(r.accion));
+    const segRev = reviews.reduce((s, r) => s + (r.duracionSeg || 0), 0);
+    const denied = list.filter((r) => r.resultado === 'denegado').length;
+    $('#logStats').innerHTML = `
+      <div class="kpi"><div class="l">Registros</div><div class="v">${list.length.toLocaleString('es-CL')}</div><div class="s">de ${logRows.length.toLocaleString('es-CL')} en total</div></div>
+      <div class="kpi"><div class="l">Usuarios</div><div class="v">${people.size}</div><div class="s">con actividad en el filtro</div></div>
+      <div class="kpi"><div class="l">Productos revisados</div><div class="v">${reviews.length.toLocaleString('es-CL')}</div><div class="s">${reviews.length ? 'promedio ' + fmtSecs(Math.round(segRev / reviews.length)) + ' por producto' : 'sin revisiones'}</div></div>
+      <div class="kpi ${denied ? 'bad' : ''}"><div class="l">Accesos denegados</div><div class="v">${denied}</div><div class="s">intentos fallidos o sin permiso</div></div>`;
+    if (!list.length) { $('#logList').innerHTML = '<div class="empty">No hay registros con estos filtros.</div>'; return; }
+    const shown = list.slice(0, logLimit);
+    $('#logList').innerHTML = `<div class="table-wrap"><table class="log">
+      <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Documento</th><th>Producto</th><th>Detalle</th><th class="num">Tiempo</th></tr></thead>
+      <tbody>${shown.map((r) => `<tr>
+        <td class="when mono">${fmtDate(r.ts, true)}</td>
+        <td>${esc(r.nombre || r.usuario || '—')}${r.rol ? `<div class="sub">${esc(rolName(r.rol))}</div>` : ''}</td>
+        <td>${esc(r.accion)}${r.resultado && r.resultado !== 'ok' ? ` <span class="pill denegado">${esc(r.resultado)}</span>` : ''}</td>
+        <td>${esc(r.doc || '')}${r.sucursal ? `<div class="sub">${esc(r.sucursal)}</div>` : ''}</td>
+        <td>${esc(r.producto || '')}${r.sku ? `<div class="sub mono">${esc(r.sku)}</div>` : ''}</td>
+        <td class="small">${esc(r.detalle || '')}<div class="sub">${esc(r.equipo || '')}</div></td>
+        <td class="num">${r.duracionSeg != null ? fmtSecs(r.duracionSeg) : ''}</td>
+      </tr>`).join('')}</tbody></table></div>
+      ${list.length > shown.length ? `<div class="actions" style="justify-content:center;padding:12px"><button class="btn" id="btnLogMore">Mostrar 200 más (quedan ${(list.length - shown.length).toLocaleString('es-CL')})</button></div>` : ''}`;
+    const more = $('#btnLogMore');
+    if (more) more.onclick = () => { logLimit += 200; renderLogList(); };
+  }
+  ['logUser', 'logAction', 'logDoc', 'logFrom', 'logTo'].forEach((id) => { $('#' + id).onchange = () => { logLimit = 200; renderLogList(); }; });
+  $('#logText').oninput = () => { logLimit = 200; renderLogList(); };
+  $('#btnLogVerify').onclick = async () => {
+    const st = $('#logStatus');
+    st.className = 'load-status busy'; st.hidden = false;
+    st.innerHTML = '<span class="spinner"></span><span>Verificando la cadena de registros…</span>';
+    const r = await Bitacora.verify();
+    audit('Verificó integridad de la bitácora', { resultado: r.ok ? 'ok' : 'error', detalle: r.ok ? `${r.total} registros íntegros` : r.motivo });
+    st.className = 'load-status ' + (r.ok ? 'ok' : 'err');
+    st.innerHTML = r.ok ? `${ic('check')}<span>Bitácora íntegra: ${r.total.toLocaleString('es-CL')} registros sin alteraciones.</span>`
+      : `${ic('alert')}<span><b>Se detectó una alteración:</b> ${esc(r.motivo)}${r.malo ? ` (registro del ${fmtDate(r.malo.ts, true)})` : ''}.</span>`;
+  };
+  $('#btnLogExport').onclick = () => {
+    const list = filteredLog();
+    const rows = list.map((r) => ({ 'N°': r.n || r.id, 'Fecha y hora (Santiago)': fmtDate(r.ts, true), 'Usuario': r.usuario || '', 'Nombre': r.nombre || '', 'Rol': r.rol ? rolName(r.rol) : '',
+      'Acción': r.accion, 'Resultado': r.resultado || '', 'Documento': r.doc || '', 'Sucursal': r.sucursal || '', 'Producto': r.producto || '', 'Código': r.sku || '',
+      'Detalle': r.detalle || '', 'Tiempo (s)': r.duracionSeg ?? '', 'Equipo': r.equipo || '', 'Hash': r.hash || '' })).map(safeRow);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Bitácora');
+    XLSX.writeFile(wb, `bitacora-${dayKey(Date.now())}.xlsx`);
+    audit('Exportó la bitácora', { detalle: `${rows.length} registros` });
   };
 
   // ---------- Utilidades ----------
@@ -1793,7 +2152,7 @@
     if (window.REVISION_DEMO && !db.orders.length) createDemo();
     const sid = loadJSON(SESSION_KEY, null) || (() => { try { return localStorage.getItem(SESSION_KEY); } catch (e) { return null; } })();
     const u = users.find((x) => x.id === sid);
-    if (u) afterLogin(u); else showLogin();
+    if (u) afterLogin(u, true); else showLogin();
   })();
 
   // Exponer funciones para pruebas

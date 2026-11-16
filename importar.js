@@ -10,11 +10,18 @@
     tesseract: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
   };
   const loaded = {};
+  // Huella (SRI) de cada librería: si el CDN entregara un archivo alterado, el navegador no lo ejecuta.
+  const SRI = {
+    [LIBS.mammoth]: 'sha384-nFoSjZIoH3CCp8W639jJyQkuPHinJ2NHe7on1xvlUA7SuGfJAfvMldrsoAVm6ECz',
+    [LIBS.pdfjs]: 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e',
+    [LIBS.tesseract]: 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F',
+  };
   function loadScript(url) {
     if (!loaded[url]) {
       loaded[url] = new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = url;
+        if (SRI[url]) { s.integrity = SRI[url]; s.crossOrigin = 'anonymous'; }
         s.onload = resolve;
         s.onerror = () => { delete loaded[url]; reject(new Error('No se pudo descargar el lector. Revisa la conexión a internet.')); };
         document.head.appendChild(s);
