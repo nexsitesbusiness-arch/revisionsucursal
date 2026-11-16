@@ -63,10 +63,122 @@
     return { orders: [] };
   }
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+    // Con servidor, los documentos se guardan allá (no en el equipo).
+    if (SERVER) { if (current) scheduleSync(current); return; }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(db, (k, v) => (k === '_hay' ? undefined : v))); }
     catch (e) { alert('No se pudo guardar en este dispositivo: ' + e.message); }
   }
   const getOrder = (id) => db.orders.find((o) => o.id === id);
+
+  // =========================================================
+  // MODO SERVIDOR (PHP + MySQL). Si la app encuentra la API, la usa;
+  // si no (demo, sin servidor), funciona sola en el equipo como antes.
+  // =========================================================
+  let SERVER = false;
+  let serverInfo = null;
+  let csrf = '';
+  async function detectServer() {
+    if (window.REVISION_DEMO) return null;
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 4000);
+      const r = await fetch('api/estado.php', { cache: 'no-store', credentials: 'same-origin', signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) return null;
+      const d = await r.json();
+      return d && d.modo === 'servidor' ? d : null;
+    } catch (e) { return null; }
+  }
+  async function api(path, { method = 'GET', body, raw } = {}) {
+    const opt = { method, credentials: 'same-origin', cache: 'no-store', headers: {} };
+    if (method !== 'GET') opt.headers['X-CSRF-Token'] = csrf;
+    if (raw) opt.body = raw;
+    else if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body, (k, v) => (k === '_hay' ? undefined : v)); }
+    let res;
+    try { res = await fetch('api/' + path, opt); }
+    catch (e) { throw Object.assign(new Error('No hay conexión con el servidor. Revisa la señal e intenta de nuevo.'), { offline: true }); }
+    const isJson = (res.headers.get('content-type') || '').includes('json');
+    const data = isJson ? await res.json() : await res.blob();
+    if (isJson && data && data.csrf) csrf = data.csrf;
+    if (res.status === 401 && me && !/login|setup/.test(path)) sessionExpired();
+    if (!res.ok) throw Object.assign(new Error((isJson && data && data.error) || 'Error del servidor.'), { status: res.status, data });
+    return data;
+  }
+  async function refreshCsrf() { const s = await api('sesion.php'); csrf = s.csrf || csrf; return s; }
+  function sessionExpired() {
+    setSession(null);
+    showLogin();
+    loginError('Tu sesión terminó. Vuelve a entrar.');
+  }
+
+  // Sincronización de documentos con el servidor (guardado diferido y control de versión).
+  const syncTimers = new Map();
+  const pendingSync = new Set();
+  function scheduleSync(o, delay = 700) {
+    pendingSync.add(o.id);
+    clearTimeout(syncTimers.get(o.id));
+    syncTimers.set(o.id, setTimeout(() => syncDoc(o.id), delay));
+  }
+  async function syncDoc(id) {
+    const o = getOrder(id);
+    if (!o || !SERVER || !me) return;
+    clearTimeout(syncTimers.get(id));
+    try {
+      const r = await api('documentos.php?id=' + encodeURIComponent(id), { method: 'PUT', body: { version: o._version, documento: o } });
+      pendingSync.delete(id);
+      // El servidor manda en estos campos (quién finalizó, aprobó, etc.).
+      ['_version', 'finishedAt', 'contadoPor', 'verifiedAt', 'verifiedBy', 'reopened'].forEach((k) => { if (k in r.documento) o[k] = r.documento[k]; });
+      setSyncState('');
+    } catch (e) {
+      if (e.status === 409 && e.data && e.data.documento) {
+        // Otro equipo cambió el documento: se carga la versión del servidor.
+        pendingSync.delete(id);
+        replaceDoc(e.data.documento);
+        info('Documento actualizado', 'Otro equipo modificó este documento. Se cargó la versión más reciente; revisa y vuelve a registrar lo último si hace falta.');
+      } else if (e.offline) {
+        setSyncState('Sin conexión: los cambios se guardarán al volver la señal.');
+        scheduleSync(o, 15000);
+      } else if (e.status !== 401) {
+        pendingSync.delete(id);
+        info('No se guardó', esc(e.message));
+      }
+    }
+  }
+  async function flushSyncs() { await Promise.all([...pendingSync].map((id) => syncDoc(id))); }
+  function setSyncState(msg) {
+    if (msg) flash(`${ic('alert')}<span>${esc(msg)}</span>`, 'warn');
+  }
+  function replaceDoc(d) {
+    d = normDoc(d);
+    const i = db.orders.findIndex((x) => x.id === d.id);
+    if (i >= 0) db.orders[i] = d; else db.orders.unshift(d);
+    if (current && current.id === d.id) {
+      current = d;
+      if (!$('#view-count').hidden) renderCount();
+      else if (!$('#view-results').hidden) { renderSummary(); renderResultsTable(); }
+      else if (!$('#view-order').hidden) openOrder(d.id);
+    }
+  }
+  // Crea un documento nuevo (en el servidor o en el equipo).
+  async function persistNewDoc(o) {
+    if (!SERVER) { db.orders.push(o); save(); return o; }
+    const r = await api('documentos.php', { method: 'POST', body: { documento: o } });
+    const d = normDoc(r.documento);
+    db.orders.unshift(d);
+    return d;
+  }
+  // Defensa extra: los mapas por producto siempre como objetos.
+  function normDoc(d) {
+    ['counts', 'evid', 'review', 'recount'].forEach((k) => { if (Array.isArray(d[k]) || (k in d && !d[k])) d[k] = {}; });
+    ['extras', 'log', 'samples'].forEach((k) => { if (k in d && !Array.isArray(d[k])) d[k] = []; });
+    return d;
+  }
+  async function loadServerData() {
+    const [c, d] = await Promise.all([api('catalogo.php'), api('documentos.php')]);
+    catalog = c.catalogo || { items: [] };
+    catIdx = null;
+    db.orders = (d.documentos || []).map(normDoc);
+  }
 
   // ---------- Navegación ----------
   let current = null; // pedido o inventario abierto
@@ -91,13 +203,39 @@
 
   // ---------- Bitácora ----------
   // Registra una acción del usuario actual. Nunca incluye contraseñas.
+  // Con servidor, estas acciones las registra el propio servidor (no se duplican).
+  const SERVER_LOGGED = new Set(['Inicio de sesión', 'Cierre de sesión', 'Inicio de sesión fallido', 'Inicio de sesión bloqueado', 'Configuró la app y creó el administrador',
+    'Creó usuario', 'Editó usuario', 'Eliminó usuario', 'Cambió su contraseña', 'Cambió la contraseña de otro usuario', 'Vio la bitácora', 'Sesión cerrada por inactividad']);
+  const QUEUE_KEY = 'revision-bitacora-cola';
+  let auditQueue = (() => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch (e) { return []; } })();
+  let flushTimer = null;
   function audit(accion, extra = {}) {
-    if (!window.Bitacora) return;
     const o = extra.doc === undefined && current ? current : null;
-    Bitacora.log(Object.assign({
+    const e = Object.assign({
       usuarioId: me ? me.id : null, usuario: me ? me.usuario : (extra.usuario || null), nombre: me ? me.nombre : null, rol: me ? role() : null,
       accion, docId: o ? o.id : null, doc: o ? o.nombre : null, sucursal: o ? o.sucursal || null : null,
-    }, extra));
+    }, extra);
+    if (SERVER) {
+      if (SERVER_LOGGED.has(accion) || !me) return;
+      auditQueue.push({ ...e, ts: Date.now() });
+      try { localStorage.setItem(QUEUE_KEY, JSON.stringify(auditQueue)); } catch (x) { /* sin almacenamiento */ }
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(flushAudit, 1500);
+      return;
+    }
+    if (window.Bitacora) Bitacora.log(e);
+  }
+  // Envía la bitácora pendiente; si no hay señal, queda en cola y se reintenta.
+  async function flushAudit() {
+    clearTimeout(flushTimer);
+    if (!SERVER || !me || !auditQueue.length) return;
+    const batch = auditQueue.slice(0, 200);
+    try {
+      await api('bitacora.php', { method: 'POST', body: { eventos: batch } });
+      auditQueue.splice(0, batch.length);
+      try { localStorage.setItem(QUEUE_KEY, JSON.stringify(auditQueue)); } catch (x) { /* sin almacenamiento */ }
+      if (auditQueue.length) flushTimer = setTimeout(flushAudit, 300);
+    } catch (err) { if (err.status !== 401) flushTimer = setTimeout(flushAudit, 20000); }
   }
   // Tiempo en pantallas de trabajo (conteo y reporte): se registra al salir.
   let viewTimer = null;
@@ -154,9 +292,19 @@
     return { counted, key: counted ? 'counting' : 'new', tag: counted ? '<span class="pill warn">En conteo</span>' : '<span class="pill">Sin contar</span>', diffs: 0 };
   }
 
-  function renderHome() {
+  let homeFetch = 0;
+  function renderHome(refresh = true) {
     current = null;
     show('home');
+    // Con servidor, se trae el estado actualizado (por ejemplo, conteos que terminó otro equipo).
+    if (SERVER && refresh && me) {
+      const k = ++homeFetch;
+      flushSyncs().then(() => api('documentos.php')).then((d) => {
+        if (k !== homeFetch || $('#view-home').hidden) return;
+        db.orders = (d.documentos || []).map(normDoc);
+        renderHome(false);
+      }).catch(() => {});
+    }
     $('#homeKicker').textContent = me ? rolName(role()) + ' · ' + me.nombre : 'Inicio';
     const st = db.orders.map(orderStatus);
     const open = st.filter((x) => x.key !== 'done').length;
@@ -176,7 +324,14 @@
     if (!db.orders.length) {
       list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre' : 'Abre'} el enlace o archivo que te enviaron.
         ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
-      if ($('#btnDemo')) $('#btnDemo').onclick = () => openOrder(createDemo().id);
+      if ($('#btnDemo')) $('#btnDemo').onclick = async () => {
+        let o = createDemo();
+        if (SERVER) {
+          db.orders = db.orders.filter((x) => x !== o);
+          try { o = await persistNewDoc(o); } catch (e) { return info('No se pudo crear', esc(e.message)); }
+        }
+        openOrder(o.id);
+      };
       return;
     }
     list.innerHTML = `<div class="table-wrap"><table class="orders">
@@ -207,7 +362,7 @@
     ].map(([codigo, producto, lote, precio, cantidad, vencimiento]) => ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento }));
     const o = newOrder({ nombre: 'Pedido de ejemplo', sucursal: 'Sucursal Centro', items });
     db.orders.push(o);
-    save();
+    if (!SERVER) save();
     return o;
   }
 
@@ -465,7 +620,7 @@
     renderPreview();
   });
 
-  $('#btnSaveOrder').onclick = () => {
+  $('#btnSaveOrder').onclick = async () => {
     if (!draft.length) return setLoadStatus('Agrega al menos un producto antes de guardar.', 'err');
     if (draft.some((i) => !i.producto || !(i.cantidad > 0))) return setLoadStatus('Hay productos sin nombre o sin cantidad. Corrígelos o quítalos antes de guardar.', 'err');
     const o = newOrder({
@@ -473,10 +628,10 @@
       sucursal: $('#orderBranch').value.trim(),
       items: draft.map(({ revisar, ...i }) => i),
     });
-    db.orders.push(o);
-    save();
-    audit('Creó pedido', { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos` });
-    openOrder(o.id);
+    let saved;
+    try { saved = await persistNewDoc(o); } catch (e) { return setLoadStatus(esc(e.message), 'err'); }
+    audit('Creó pedido', { docId: saved.id, doc: saved.nombre, sucursal: saved.sucursal || null, detalle: `${saved.items.length} productos` });
+    openOrder(saved.id);
   };
 
   function newOrder({ id, nombre, sucursal, creado, items, origen = 'central', tipo = 'pedido', fechaSistema = '' }) {
@@ -518,6 +673,7 @@
     const o = newOrder({ id: d.id, nombre: d.n, sucursal: d.s, creado: d.c, origen: 'recibido', tipo: d.t || 'pedido', fechaSistema: d.f || '',
       items: d.i.map(([codigo, producto, lote, precio, cantidad, vencimiento, sku, categoria]) =>
         ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento, sku: sku || '', categoria: categoria || '' })) });
+    if (SERVER) return info('Documento recibido', 'Con servidor, los pedidos e inventarios ya están en el sistema: búscalos en el inicio.');
     db.orders.push(o);
     save();
     audit(`Abrió ${T(o).doc} recibido`, { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos` });
@@ -544,6 +700,10 @@
     const r = await ask({ title: `¿Eliminar este ${T(current).doc}?`, html: '<p>Se borrará también el conteo y sus fotos.</p>',
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
+    if (SERVER) {
+      try { await api('documentos.php?id=' + encodeURIComponent(current.id), { method: 'DELETE' }); }
+      catch (e) { return info('No se eliminó', esc(e.message)); }
+    }
     Object.values(current.evid || {}).forEach((ev) => ev.fotos.forEach((fid) => Fotos.del(fid)));
     audit(`Eliminó ${T(current).doc}`, { detalle: `${current.items.length} productos` });
     db.orders = db.orders.filter((o) => o.id !== current.id);
@@ -590,9 +750,22 @@
     };
   })();
   const photoUrls = new Map();
+  // Foto desde el equipo; con servidor, si no está guardada aquí, se descarga (con permiso del servidor).
+  async function getPhoto(id) {
+    let blob = await Fotos.get(id).catch(() => null);
+    if (!blob && SERVER) {
+      try { blob = await api('evidencia.php?id=' + encodeURIComponent(id)); if (blob instanceof Blob) Fotos.put(id, blob).catch(() => {}); else blob = null; }
+      catch (e) { blob = null; }
+    }
+    return blob;
+  }
+  function delPhoto(id) {
+    Fotos.del(id);
+    if (SERVER) api('evidencia.php?id=' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {});
+  }
   async function photoUrl(id) {
     if (!photoUrls.has(id)) {
-      const blob = await Fotos.get(id);
+      const blob = await getPhoto(id);
       photoUrls.set(id, blob ? URL.createObjectURL(blob) : '');
     }
     return photoUrls.get(id);
@@ -645,8 +818,9 @@
     const add = async (e) => {
       for (const f of e.target.files) {
         try {
-          const fid = uid();
-          await Fotos.put(fid, await compressImage(f));
+          const blob = await compressImage(f);
+          const fid = SERVER ? (await api('evidencia.php?doc=' + encodeURIComponent(current.id), { method: 'POST', raw: blob })).id : uid();
+          await Fotos.put(fid, blob);
           nuevas.push(fid);
           fotos.push(fid);
         } catch (err) { flash(`${ic('alert')}<span>No se pudo guardar la foto.</span>`, 'err'); }
@@ -658,8 +832,8 @@
     $('#evGal').onchange = add;
     draw();
     const r = await p;
-    if (r.value !== 'ok') { nuevas.forEach((fid) => Fotos.del(fid)); return; }
-    ev.fotos.filter((fid) => !fotos.includes(fid)).forEach((fid) => Fotos.del(fid));
+    if (r.value !== 'ok') { nuevas.forEach((fid) => delPhoto(fid)); return; }
+    ev.fotos.filter((fid) => !fotos.includes(fid)).forEach((fid) => delPhoto(fid));
     const next = { motivo: r.fields.motivo || '', nota: (r.fields.nota || '').trim(), fotos };
     if (!next.motivo && !next.nota && !fotos.length) delete current.evid[id];
     else current.evid[id] = next;
@@ -1490,7 +1664,7 @@
       if (!ev) continue;
       let k = 1;
       for (const fid of ev.fotos) {
-        const blob = await Fotos.get(fid);
+        const blob = await getPhoto(fid);
         if (blob) files.push(new File([blob], `${safeName(r.producto)}-${safeName(r.lote || 'sl')}-${k++}.jpg`, { type: 'image/jpeg' }));
       }
     }
@@ -1556,13 +1730,13 @@
   function showLogin() {
     setSession(null);
     current = null;
-    const setup = !users.length;
+    const setup = SERVER ? !(serverInfo && serverInfo.configurado) : !users.length;
     show('login');
     $('#loginTitle').textContent = setup ? 'Configurar la app' : 'Iniciar sesión';
     $('#loginSub').textContent = setup ? 'Crea el usuario administrador. Con él podrás crear los usuarios de cada sucursal.' : 'Ingresa con tu usuario y contraseña.';
     $('#setupFields').hidden = !setup;
     $('#setupFields2').hidden = !setup;
-    $('#setupImport').hidden = !setup;
+    $('#setupImport').hidden = !setup || SERVER;
     $('#btnLoginText').textContent = setup ? 'Crear administrador y entrar' : 'Entrar';
     $('#loginPass').autocomplete = setup ? 'new-password' : 'current-password';
     $('#loginError').hidden = true;
@@ -1580,6 +1754,17 @@
     const btn = $('#btnLogin');
     btn.disabled = true;
     try {
+      if (SERVER) {
+        // Con servidor: el servidor valida la contraseña, bloquea intentos y registra la bitácora.
+        if (!(serverInfo && serverInfo.configurado)) {
+          if (pass !== $('#setupPass2').value) return loginError('Las contraseñas no coinciden.');
+          const r = await api('setup.php', { method: 'POST', body: { nombre: $('#setupNombre').value.trim(), usuario, clave: pass } });
+          serverInfo.configurado = true;
+          return afterLogin(r.usuario);
+        }
+        const r = await api('login.php', { method: 'POST', body: { usuario, clave: pass } });
+        return afterLogin(r.usuario);
+      }
       if (!users.length) {
         const nombre = $('#setupNombre').value.trim();
         if (!nombre || !usuario) return loginError('Completa el nombre y el usuario.');
@@ -1620,15 +1805,20 @@
       closeViewTimer();
       audit('Sesión cerrada por inactividad');
       if ($('#dlg').open) $('#dlg').close('');
+      if (SERVER) { flushSyncs().then(flushAudit).finally(() => api('logout.php', { method: 'POST' }).catch(() => {})); }
       showLogin();
       loginError('Tu sesión se cerró por inactividad. Vuelve a entrar.');
     }
   }, 30000);
 
-  function afterLogin(u, restored = false) {
+  async function afterLogin(u, restored = false) {
     lastActivity = Date.now();
     setSession(u);
     audit(restored ? 'Retomó sesión abierta' : 'Inicio de sesión');
+    if (SERVER) {
+      try { await loadServerData(); flushAudit(); }
+      catch (e) { if (e.status === 401) return; info('No se pudo cargar', esc(e.message)); }
+    }
     if (!checkHash()) renderHome();
   }
 
@@ -1638,14 +1828,19 @@
     const opts = [
       ...(isAdmin() ? [['users', 'users', 'Usuarios'], ['catalog', 'list', 'Maestro de productos']] : []),
       ...(isStaff() ? [['log', 'history', 'Bitácora']] : []),
-      ...(isAdmin() ? [['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
+      ...(isAdmin() && !SERVER ? [['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
       ['pass', 'lock', 'Cambiar mi contraseña'], ['logout', 'logout', 'Cerrar sesión'],
     ];
     const r = await ask({ title: 'Mi cuenta',
       html: `<div class="menu-who"><span class="avatar">${esc(initials(me.nombre))}</span><div><b>${esc(me.nombre)}</b><div class="small muted">${esc(me.usuario)} · ${rolName(me.rol)}${me.sucursal ? ' · ' + esc(me.sucursal) : ''}</div></div></div>
         <div class="menu-list">${opts.map(([v, i, l]) => `<button class="btn" value="${v}">${ic(i)} ${l}</button>`).join('')}</div>`,
       buttons: [{ label: 'Cerrar', value: '' }] });
-    if (r.value === 'logout') { closeViewTimer(); audit('Cierre de sesión'); showLogin(); }
+    if (r.value === 'logout') {
+      closeViewTimer();
+      audit('Cierre de sesión');
+      if (SERVER) { await flushSyncs(); await flushAudit(); try { await api('logout.php', { method: 'POST' }); await refreshCsrf(); } catch (e) { /* ya sin sesión */ } }
+      showLogin();
+    }
     else if (r.value === 'users') renderUsers();
     else if (r.value === 'log') renderLog();
     else if (r.value === 'catalog') renderCatalog();
@@ -1669,6 +1864,14 @@
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
     if (r.value !== 'ok') return;
     const f = r.fields;
+    if (SERVER) {
+      if (f.nueva !== f.nueva2) return info('No se cambió', 'Las contraseñas no coinciden.');
+      try {
+        if (byAdmin) await api('usuarios.php?id=' + encodeURIComponent(u.id), { method: 'PUT', body: { clave: f.nueva } });
+        else await api('clave.php', { method: 'POST', body: { actual: f.actual, nueva: f.nueva } });
+      } catch (e) { return info('No se cambió', esc(e.message)); }
+      return info('Contraseña actualizada', byAdmin ? `${esc(u.nombre)} ya puede entrar con la nueva contraseña.` : 'Usa la nueva contraseña la próxima vez que entres.');
+    }
     if (!byAdmin && (await hashPass(f.actual, u.salt)) !== u.hash) return info('No se cambió', 'La contraseña actual no es correcta.');
     const pp = passProblem(f.nueva, u.usuario);
     if (pp) return info('No se cambió', pp);
@@ -1682,8 +1885,12 @@
   const info = (title, html) => ask({ title, html: `<p>${html}</p>`, buttons: [{ label: 'Aceptar', value: 'ok', cls: 'primary' }] });
 
   // ---------- Administración de usuarios ----------
-  function renderUsers() {
+  async function renderUsers() {
     if (!isAdmin()) return renderHome();
+    if (SERVER) {
+      try { users = (await api('usuarios.php')).usuarios; }
+      catch (e) { return info('No se pudo cargar', esc(e.message)); }
+    }
     show('users', 'Usuarios');
     $('#usersList').innerHTML = `<div class="table-wrap"><table>
       <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Sucursal</th><th></th></tr></thead>
@@ -1725,6 +1932,15 @@
     if (!f.nombre.trim() || !usuario) return info('No se guardó', 'Completa el nombre y el usuario.');
     if (!/^[a-z0-9._\-@]+$/.test(usuario)) return info('No se guardó', 'El usuario solo puede tener letras sin tilde, números, punto, guion o @.');
     if (users.some((x) => x.usuario === usuario && x !== u)) return info('No se guardó', `Ya existe el usuario <b>${esc(usuario)}</b>.`);
+    if (SERVER) {
+      const body = { nombre: f.nombre.trim(), usuario, rol: f.rol, sucursal: f.sucursal.trim() };
+      try {
+        if (u) await api('usuarios.php?id=' + encodeURIComponent(u.id), { method: 'PUT', body });
+        else await api('usuarios.php', { method: 'POST', body: { ...body, clave: f.pass || '' } });
+      } catch (e) { return info('No se guardó', esc(e.message)); }
+      if (u && u.id === me.id) setSession({ ...me, ...body });
+      return renderUsers();
+    }
     if (u) {
       if (u.id === me.id && f.rol !== 'admin') return info('No se guardó', 'No puedes quitarte el rol de administrador a ti mismo.');
       const antes = `${u.usuario} · ${rolName(u.rol)}`;
@@ -1745,6 +1961,11 @@
     const r = await ask({ title: `¿Eliminar a ${u.nombre}?`, html: '<p>Ya no podrá entrar en este equipo. Sus conteos se mantienen.</p>',
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Eliminar', value: 'del', cls: 'danger' }] });
     if (r.value !== 'del') return;
+    if (SERVER) {
+      try { await api('usuarios.php?id=' + encodeURIComponent(u.id), { method: 'DELETE' }); }
+      catch (e) { return info('No se eliminó', esc(e.message)); }
+      return renderUsers();
+    }
     users = users.filter((x) => x !== u);
     audit('Eliminó usuario', { detalle: `${u.usuario} · ${rolName(u.rol)}` });
     saveUsers();
@@ -1784,6 +2005,10 @@
   function setCatalog(c) {
     catalog = c;
     catIdx = null;
+    if (SERVER) {
+      api('catalogo.php', { method: 'PUT', body: { catalogo: c } }).catch((e) => info('No se guardó el maestro', esc(e.message)));
+      return;
+    }
     try { localStorage.setItem(CATALOG_KEY, JSON.stringify(c)); }
     catch (e) { info('No se pudo guardar el maestro', 'No hay espacio suficiente en este equipo.'); }
   }
@@ -2018,7 +2243,7 @@
       </table></div></div>`;
     $('#invFoot').hidden = false;
   }
-  $('#btnSaveInventory').onclick = () => {
+  $('#btnSaveInventory').onclick = async () => {
     if (!invDraft) return;
     const sucursal = $('#invSucursal').value.trim();
     const fecha = $('#invFecha').value.trim();
@@ -2028,11 +2253,11 @@
       sucursal, fechaSistema: fecha,
       items: invDraft.items.map((i) => ({ id: uid(), sku: i.sku, codigo: i.ean || '', producto: i.producto, categoria: i.categoria, cantidad: i.cantidad, lote: '', precio: 0, vencimiento: '' })),
     });
-    db.orders.push(o);
-    save();
-    audit('Creó inventario', { docId: o.id, doc: o.nombre, sucursal: o.sucursal || null, detalle: `${o.items.length} productos · ${invDraft.archivo || ''}` });
+    let saved;
+    try { saved = await persistNewDoc(o); } catch (e) { return info('No se pudo crear', esc(e.message)); }
+    audit('Creó inventario', { docId: saved.id, doc: saved.nombre, sucursal: saved.sucursal || null, detalle: `${saved.items.length} productos · ${invDraft.archivo || ''}` });
     invDraft = null;
-    openOrder(o.id);
+    openOrder(saved.id);
   };
 
   // =========================================================
@@ -2047,7 +2272,15 @@
     show('log', 'Bitácora');
     audit('Vio la bitácora', { docId: fromDoc ? fromDoc.id : null, doc: fromDoc ? fromDoc.nombre : null, detalle: fromDoc ? 'filtrada por documento' : null });
     $('#logStatus').hidden = true;
-    logRows = (await Bitacora.all()).reverse();
+    if (SERVER) {
+      await flushAudit();
+      try {
+        const r = await api('bitacora.php' + (fromDoc ? '?doc=' + encodeURIComponent(fromDoc.id) : ''));
+        logRows = r.registros.map((x) => ({ n: +x.n, ts: +x.ts_ms, usuarioId: x.usuario_id, usuario: x.usuario, nombre: x.nombre, rol: x.rol, accion: x.accion,
+          docId: x.doc_id, doc: x.doc, sucursal: x.sucursal, producto: x.producto, sku: x.sku, detalle: x.detalle,
+          duracionSeg: x.duracion_seg == null ? null : +x.duracion_seg, resultado: x.resultado, equipo: x.equipo, ip: x.ip, hash: x.hash }));
+      } catch (e) { logRows = []; info('No se pudo cargar la bitácora', esc(e.message)); }
+    } else logRows = (await Bitacora.all()).reverse();
     logLimit = 200;
     const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
     const fill = (sel, label, vals, fmt = (v) => v) => {
@@ -2107,7 +2340,11 @@
     const st = $('#logStatus');
     st.className = 'load-status busy'; st.hidden = false;
     st.innerHTML = '<span class="spinner"></span><span>Verificando la cadena de registros…</span>';
-    const r = await Bitacora.verify();
+    let r;
+    if (SERVER) {
+      try { const v = await api('bitacora.php?verificar=1'); r = { ok: v.integra, total: v.total, motivo: v.motivo, malo: v.ts ? { ts: v.ts } : null }; }
+      catch (e) { r = { ok: false, total: 0, motivo: e.message }; }
+    } else r = await Bitacora.verify();
     audit('Verificó integridad de la bitácora', { resultado: r.ok ? 'ok' : 'error', detalle: r.ok ? `${r.total} registros íntegros` : r.motivo });
     st.className = 'load-status ' + (r.ok ? 'ok' : 'err');
     st.innerHTML = r.ok ? `${ic('check')}<span>Bitácora íntegra: ${r.total.toLocaleString('es-CL')} registros sin alteraciones.</span>`
@@ -2117,7 +2354,7 @@
     const list = filteredLog();
     const rows = list.map((r) => ({ 'N°': r.n || r.id, 'Fecha y hora (Santiago)': fmtDate(r.ts, true), 'Usuario': r.usuario || '', 'Nombre': r.nombre || '', 'Rol': r.rol ? rolName(r.rol) : '',
       'Acción': r.accion, 'Resultado': r.resultado || '', 'Documento': r.doc || '', 'Sucursal': r.sucursal || '', 'Producto': r.producto || '', 'Código': r.sku || '',
-      'Detalle': r.detalle || '', 'Tiempo (s)': r.duracionSeg ?? '', 'Equipo': r.equipo || '', 'Hash': r.hash || '' })).map(safeRow);
+      'Detalle': r.detalle || '', 'Tiempo (s)': r.duracionSeg ?? '', 'Equipo': r.equipo || '', ...(SERVER ? { 'IP': r.ip || '' } : {}), 'Hash': r.hash || '' })).map(safeRow);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Bitácora');
     XLSX.writeFile(wb, `bitacora-${dayKey(Date.now())}.xlsx`);
@@ -2141,6 +2378,18 @@
     navigator.serviceWorker.register('sw.js').catch(() => { /* sin modo offline */ });
   }
   (async () => {
+    // ¿Hay servidor? Entonces usuarios, documentos y bitácora viven allá.
+    serverInfo = await detectServer();
+    if (serverInfo) {
+      SERVER = true;
+      document.body.classList.add('mode-server');
+      try {
+        const s = await refreshCsrf();
+        if (s.usuario) { afterLogin(s.usuario, true); return; }
+      } catch (e) { /* sin sesión */ }
+      showLogin();
+      return;
+    }
     // Demo: usuarios de prueba para entrar sin configurar nada.
     if (window.REVISION_DEMO) {
       const demo = [['Administrador', 'admin', 'admin123', 'admin'], ['QF Renca', 'qf', 'qf123', 'qf'], ['Auxiliar Renca', 'renca', '1234', 'auxiliar']];

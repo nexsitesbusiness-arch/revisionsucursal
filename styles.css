@@ -437,3 +437,6 @@ table.log td { font-size: 13px; }
 table.log td.when { white-space: nowrap; }
 .pill.denegado { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
 .privacy-note { margin: 14px 0 0; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5; }
+
+/* Con servidor no se usan los envíos por enlace o archivo */
+.mode-server .local-only { display: none !important; }

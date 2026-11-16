@@ -1,5 +1,5 @@
 // Modo sin conexión: guarda la app y las librerías para poder contar sin internet.
-const CACHE = 'revision-v7';
+const CACHE = 'revision-v8';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'importar.js', 'bitacora.js', 'desplegable.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
@@ -22,6 +22,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  // La API nunca se guarda en el equipo: datos siempre frescos y sin copias locales.
+  if (url.origin === location.origin && url.pathname.includes('/api/')) return;
   if (url.origin === location.origin) {
     // Archivos propios: red primero (para recibir mejoras), caché si no hay conexión.
     e.respondWith(
