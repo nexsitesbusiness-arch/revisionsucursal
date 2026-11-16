@@ -2022,8 +2022,8 @@
         <label>Usuario (para entrar)<input name="usuario" value="${esc(u ? u.usuario : '')}" autocapitalize="none" spellcheck="false"></label>
         <label>Rol<select name="rol">
           <option value="auxiliar" ${!u || u.rol === 'auxiliar' ? 'selected' : ''}>Auxiliar: solo digita cantidades</option>
-          <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: revisa y verifica las desviaciones</option>
-          <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: todo</option></select></label>
+          <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: carga el inventario, revisa y aprueba</option>
+          <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: configura y carga pedidos</option></select></label>
         <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
         ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
