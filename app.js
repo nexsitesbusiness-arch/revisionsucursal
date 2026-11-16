@@ -1783,10 +1783,11 @@
   }
   (async () => {
     // Demo: usuarios de prueba para entrar sin configurar nada.
-    if (window.REVISION_DEMO && !users.length) {
-      users.push(await makeUser({ nombre: 'Administrador', usuario: 'admin', pass: 'admin123', rol: 'admin' }));
-      users.push(await makeUser({ nombre: 'QF Renca', usuario: 'qf', pass: 'qf123', rol: 'qf', sucursal: 'CL0007 RENCA' }));
-      users.push(await makeUser({ nombre: 'Auxiliar Renca', usuario: 'renca', pass: '1234', rol: 'auxiliar', sucursal: 'CL0007 RENCA' }));
+    if (window.REVISION_DEMO) {
+      const demo = [['Administrador', 'admin', 'admin123', 'admin'], ['QF Renca', 'qf', 'qf123', 'qf'], ['Auxiliar Renca', 'renca', '1234', 'auxiliar']];
+      for (const [nombre, usuario, pass, rol] of demo) {
+        if (!users.some((u) => u.usuario === usuario)) users.push(await makeUser({ nombre, usuario, pass, rol, sucursal: rol === 'admin' ? '' : 'CL0007 RENCA' }));
+      }
       saveUsers();
     }
     if (window.REVISION_DEMO && !db.orders.length) createDemo();
