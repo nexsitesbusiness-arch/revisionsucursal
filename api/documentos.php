@@ -9,19 +9,20 @@ $u = require_login();
 $m = method();
 
 // Campos que cada rol puede cambiar en un documento.
-const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt'];
+const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc'];
 const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples'];
 
 function load_doc(string $id): ?array {
-    $r = q('SELECT * FROM documentos WHERE id = ?', [$id])->fetch();
+    $r = q('SELECT id, tipo, sucursal, version, datos FROM documentos WHERE id = ?', [$id])->fetch();
     return $r ?: null;
 }
 function save_doc(array $d, array $u, int $version): int {
     $estado = doc_estado($d);
     unset($d['_version']);
+    $res = doc_resumen($d);
     $d = doc_fix_maps($d);
-    $st = q('UPDATE documentos SET nombre = ?, sucursal = ?, estado = ?, datos = ?, version = version + 1, actualizado_por = ? WHERE id = ? AND version = ?',
-        [mb_substr((string) ($d['nombre'] ?? ''), 0, 200), mb_substr((string) ($d['sucursal'] ?? ''), 0, 120), $estado, json_encode($d, JSON_UNESCAPED_UNICODE), $u['id'], $d['id'], $version]);
+    $st = q('UPDATE documentos SET nombre = ?, sucursal = ?, estado = ?, datos = ?, resumen = ?, version = version + 1, actualizado_por = ? WHERE id = ? AND version = ?',
+        [mb_substr((string) ($d['nombre'] ?? ''), 0, 200), mb_substr((string) ($d['sucursal'] ?? ''), 0, 120), $estado, json_encode($d, JSON_UNESCAPED_UNICODE), json_encode($res, JSON_UNESCAPED_UNICODE), $u['id'], $d['id'], $version]);
     if ($st->rowCount() !== 1) return 0;
     return $version + 1;
 }
@@ -40,11 +41,13 @@ if ($m === 'GET') {
         if (!can_see_doc($u, $d)) { audit_server('Acceso denegado a documento', ['resultado' => 'denegado', 'doc_id' => $r['id']]); fail('Documento no encontrado.', 404); }
         out(['ok' => true, 'documento' => doc_for_user($d, $u)]);
     }
-    $rows = q('SELECT * FROM documentos ORDER BY creado_en DESC LIMIT 500')->fetchAll();
+    // Lista liviana: solo el resumen de cada documento (el detalle se pide al abrirlo).
+    $rows = q('SELECT id, sucursal, version, resumen FROM documentos ORDER BY creado_en DESC LIMIT 500')->fetchAll();
     $list = [];
     foreach ($rows as $r) {
-        $d = doc_row_to_obj($r);
-        if (can_see_doc($u, $d)) $list[] = doc_for_user($d, $u);
+        if (!can_see_doc($u, ['sucursal' => $r['sucursal']])) continue;
+        $res = $r['resumen'] ? (json_decode($r['resumen'], true) ?: []) : doc_resumen(doc_row_to_obj(load_doc($r['id'])));
+        $list[] = ['id' => $r['id'], '_version' => (int) $r['version'], '_resumen' => true] + resumen_for_user($res, $u);
     }
     out(['ok' => true, 'documentos' => $list]);
 }
@@ -59,9 +62,10 @@ if ($m === 'POST') {
     if (count($d['items']) > 20000) fail('El documento tiene demasiados productos.');
     if (load_doc($d['id'])) fail('El documento ya existe.', 409);
     $d['creadoPor'] = $u['nombre'];
+    $res = doc_resumen($d);
     $d = doc_fix_maps($d);
-    q('INSERT INTO documentos (id, tipo, nombre, sucursal, estado, datos, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [$d['id'], $d['tipo'], mb_substr((string) ($d['nombre'] ?? ''), 0, 200), mb_substr((string) ($d['sucursal'] ?? ''), 0, 120), doc_estado($d), json_encode($d, JSON_UNESCAPED_UNICODE), $u['id'], $u['id']]);
+    q('INSERT INTO documentos (id, tipo, nombre, sucursal, estado, datos, resumen, creado_por, actualizado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [$d['id'], $d['tipo'], mb_substr((string) ($d['nombre'] ?? ''), 0, 200), mb_substr((string) ($d['sucursal'] ?? ''), 0, 120), doc_estado($d), json_encode($d, JSON_UNESCAPED_UNICODE), json_encode($res, JSON_UNESCAPED_UNICODE), $u['id'], $u['id']]);
     out(['ok' => true, 'documento' => doc_fix_maps(doc_row_to_obj(load_doc($d['id'])))]);
 }
 
@@ -126,17 +130,5 @@ if ($m === 'PUT') {
 }
 fail('Método no permitido.', 405);
 
-// Cuenta desviaciones y muestras sin revisión del QF (misma regla que la app).
-function pending_reviews(array $d): int {
-    $rev = $d['review'] ?? [];
-    $old = $d['recount'] ?? [];
-    $sample = [];
-    foreach ($d['samples'] ?? [] as $s) foreach ($s['ids'] ?? [] as $x) $sample[$x] = true;
-    $n = 0;
-    foreach ($d['items'] ?? [] as $it) {
-        $dif = (int) ($d['counts'][$it['id']] ?? 0) - (int) ($it['cantidad'] ?? 0);
-        if (($dif !== 0 || isset($sample[$it['id']])) && !isset($rev[$it['id']]) && !isset($old[$it['id']])) $n++;
-    }
-    foreach ($d['extras'] ?? [] as $x) if ((int) ($x['cantidad'] ?? 0) !== 0 && !isset($rev[$x['id']]) && !isset($old[$x['id']])) $n++;
-    return $n;
-}
+// Desviaciones y muestras sin revisión del QF (misma regla que la app).
+function pending_reviews(array $d): int { return doc_resumen($d)['pendientes']; }

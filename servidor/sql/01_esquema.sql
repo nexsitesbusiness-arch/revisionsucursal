@@ -45,11 +45,12 @@ CREATE TABLE IF NOT EXISTS documentos (
   estado ENUM('abierto','finalizado','aprobado') NOT NULL DEFAULT 'abierto',
   version INT NOT NULL DEFAULT 1,
   datos LONGTEXT NOT NULL,
+  resumen TEXT NULL,
   creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   creado_por CHAR(32) NULL,
   actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   actualizado_por CHAR(32) NULL,
-  INDEX (sucursal), INDEX (estado)
+  INDEX (sucursal), INDEX (estado), INDEX (creado_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Fotos de evidencia.
@@ -86,7 +87,8 @@ CREATE TABLE IF NOT EXISTS bitacora (
   ip VARCHAR(45) NULL,
   hash_anterior CHAR(64) NOT NULL,
   hash CHAR(64) NOT NULL,
-  INDEX (ts_ms), INDEX (usuario), INDEX (doc_id), INDEX (accion)
+  INDEX (ts_ms), INDEX (accion),
+  INDEX bitacora_doc_n (doc_id, n), INDEX bitacora_usuario_n (usuario_id, n), INDEX bitacora_usuario_txt (usuario, n)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Nadie puede modificar ni borrar la bitácora, ni siquiera por error desde la app.

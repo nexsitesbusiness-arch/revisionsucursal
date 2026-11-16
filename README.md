@@ -33,9 +33,8 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
   - **Administrador:** carga pedidos, inventarios, maestro y costos; administra usuarios; reabre conteos.
   - **QF:** ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
   - **Auxiliar:** solo digita cantidades. No ve cantidades del sistema, ni totales, ni si lo que digita coincide. Al finalizar recibe solo un "Conteo finalizado".
-- Las contraseñas se guardan cifradas (PBKDF2) en el equipo, nunca en texto.
-- Para usar los mismos usuarios y el maestro en otra tablet: menú → **Exportar configuración** y, en la otra tablet, **Importar configuración**.
-- Limitación: sin servidor, los usuarios viven en cada equipo. Sirve para identificar quién cuenta y limitar lo que ve cada uno en una tablet compartida, no como seguridad frente a alguien con conocimientos técnicos.
+- Las contraseñas nunca se guardan en texto (ver Seguridad).
+- **Con servidor**, los usuarios son los mismos en todas las tablets. **Sin servidor**, viven en cada equipo: para copiarlos a otra tablet, menú → **Exportar configuración** y, en la otra, **Importar configuración**.
 
 ## Flujo de un inventario
 
@@ -57,10 +56,19 @@ Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora
 
 ## Seguridad
 
-- Contraseñas cifradas (PBKDF2), mínimo 6 caracteres y sin claves comunes. Bloqueo de 5 minutos tras 5 intentos fallidos. Cierre de sesión tras 30 minutos sin uso.
-- Política de seguridad de contenido (CSP) y verificación de integridad (SRI) de las librerías externas.
-- Las exportaciones a Excel/CSV neutralizan fórmulas escondidas en los textos.
-- **Limitación importante:** sin servidor, los permisos, usuarios y la bitácora viven en cada equipo. Una persona con conocimientos técnicos y acceso físico a la tablet podría borrar los datos del navegador. Para control total (bitácora central inalterable, permisos validados en servidor) hace falta el backend PHP + MySQL en Google Cloud.
+- **Con servidor:** las contraseñas se guardan con `password_hash` (bcrypt). Hay bloqueo de 5 minutos tras 5 intentos fallidos, cierre de sesión tras 30 minutos sin uso, cookie de sesión protegida (HttpOnly, SameSite, Secure) y token CSRF. Los permisos se validan en el servidor: el auxiliar nunca recibe cantidades ni costos, y aprobar exige que todo esté revisado. La bitácora no se puede modificar ni borrar, ni siquiera desde la base de datos (triggers y permisos mínimos).
+- **Sin servidor:** las contraseñas se cifran con PBKDF2 en el equipo. Sirve para una tablet compartida, pero alguien con conocimientos técnicos y acceso físico a la tablet podría borrar los datos del navegador.
+- En los dos modos hay política de seguridad de contenido (CSP), verificación de integridad (SRI) de las librerías externas y exportaciones a Excel/CSV que neutralizan fórmulas escondidas.
+
+## Vencimiento
+
+Si el código escaneado (DataMatrix GS1) trae fecha de vencimiento y faltan **90 días o menos**, la app avisa. La fecha queda en el reporte del QF ("Vence pronto") y en el Excel (columna *Vencimiento leído*).
+
+## Privacidad (Ley 21.719)
+
+- En el inicio de sesión se avisa que la actividad queda registrada, con un enlace a la **Política de privacidad** (también en el menú de usuario).
+- El administrador puede **descargar los datos de un usuario** (Usuarios → Datos) cuando una persona los pida.
+- La política es una **plantilla: debe revisarla un abogado** antes del uso real (plazo de conservación, responsable y canal de contacto).
 
 ## Maestro de productos
 
@@ -86,9 +94,9 @@ El motivo, la nota y las fotos salen en el reporte de diferencias, en el Excel (
 
 ## Diseño
 
-Estilo **Ejecutivo**: barra azul marino, azul corporativo, tablas ordenadas, íconos de línea y botones redondos. El botón de la luna (arriba a la derecha) cambia a **modo oscuro**, útil en bodegas con poca luz.
+Estilo **Ejecutivo/Marino**: barra azul marino, azul corporativo, tablas ordenadas, íconos de línea y botones redondos. Siempre tema claro, letra Roboto, desplegables propios con buscador, fechas dd-mm-aaaa (hora de Santiago) y montos en pesos chilenos.
 
-<img src="docs/capturas/tab-nocturno-6-diferencias.png" width="420"> <img src="docs/capturas/cel-ejecutivo-4-conteo.png" width="260">
+<img src="docs/capturas/cel-ejecutivo-4-conteo.png" width="260">
 
 ## Instalar en la tablet (funciona sin internet)
 
@@ -151,19 +159,24 @@ Al cerrar el conteo se registra **quién contó** y la hora de inicio y cierre (
 
 ## Publicación
 
-Es una página estática (HTML + JS, sin servidor). Para usarla desde el celular:
+- **Demo sin servidor (GitHub Pages):** en GitHub, **Settings → Pages → Source: GitHub Actions**. Cada merge a `main` se publica solo. Solo se publican los archivos de la app, no el servidor ni la documentación.
+- **Uso real con servidor (Google Cloud Run + Cloud SQL):** paso a paso en [`DEPLOY.md`](DEPLOY.md).
+- La cámara solo funciona con `https://` o en `localhost`.
 
-1. En GitHub: **Settings → Pages → Source: GitHub Actions**.
-2. Al hacer merge a `main`, se publica sola en `https://<usuario>.github.io/revisionsucursal/`.
+## Para quien siga con el desarrollo
 
-La cámara solo funciona en `https://` (GitHub Pages ya lo es) o en `localhost`.
+- [`CLAUDE.md`](CLAUDE.md): stack, reglas de negocio y zonas peligrosas.
+- [`ARQUITECTURA.md`](ARQUITECTURA.md), [`BASE_DE_DATOS.md`](BASE_DE_DATOS.md), [`DEPLOY.md`](DEPLOY.md), [`ACCESOS.md`](ACCESOS.md) y [`CAMBIOS.md`](CAMBIOS.md).
+- Probar en local: `python3 -m http.server` (sin servidor). Para el modo con servidor, ver "Pruebas" en `DEPLOY.md`.
 
-Para probar en la computadora: `python3 -m http.server` y abrir `http://localhost:8000`.
+## Rendimiento
+
+Probado con 50 inventarios de 1.219 productos y 100.000 registros de bitácora, en una tablet de gama media simulada: abrir un conteo tarda 0,2 s, registrar un escaneo 0,1 s, abrir el reporte del QF 0,4 s y cualquier consulta al servidor menos de 0,14 s. Las listas largas se muestran por tandas al bajar en la pantalla.
 
 ## Limitaciones actuales
 
-- Los datos se guardan en cada dispositivo (no hay base de datos central). La central recibe el resultado por Excel o WhatsApp.
-- Los códigos EAN-13 normales no traen lote; para verificar lote automáticamente hace falta el DataMatrix/GS1 de la caja.
+- **Sin servidor**, los datos se guardan en cada tablet y la central recibe el resultado por Excel o WhatsApp. Con servidor todo queda centralizado.
+- Los códigos EAN-13 normales no traen lote ni vencimiento; para verificarlos automáticamente hace falta el DataMatrix/GS1 de la caja.
 - Leer Word, PDF y fotos requiere internet la primera vez (se descarga el lector). Las fotos de hojas se leen bien si están derechas, enfocadas y con buena luz; siempre conviene revisar.
 - Word antiguo (.doc) no se lee: hay que guardarlo como .docx.
-- Las fotos de evidencia quedan en el equipo donde se tomaron; la central las recibe al compartir el reporte.
+- Los costos de prueba son ficticios: falta el archivo real de costos para el orden ABC por valor.

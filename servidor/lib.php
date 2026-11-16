@@ -117,7 +117,7 @@ function me(bool $reset = false): ?array {
     if ($reset) $cache = false;
     if ($cache !== false) return $cache;
     $uid = $_SESSION['uid'] ?? null;
-    $cache = $uid ? (q('SELECT * FROM usuarios WHERE id = ? AND activo = 1', [$uid])->fetch() ?: null) : null;
+    $cache = $uid ? (q('SELECT id, usuario, nombre, rol, sucursal, clave_hash FROM usuarios WHERE id = ? AND activo = 1', [$uid])->fetch() ?: null) : null;
     return $cache;
 }
 function require_login(): array {
@@ -177,7 +177,7 @@ function equipo(): string {
 function audit_server(string $accion, array $e = []): void {
     $u = me();
     $uid = $e['usuario_id'] ?? ($u['id'] ?? null);
-    if ($uid && !$u) $u = q('SELECT * FROM usuarios WHERE id = ?', [$uid])->fetch() ?: null;
+    if ($uid && !$u) $u = q('SELECT id, usuario, nombre, rol FROM usuarios WHERE id = ?', [$uid])->fetch() ?: null;
     $row = [
         'ts_ms' => $e['ts_ms'] ?? now_ms(),
         'usuario_id' => $u['id'] ?? null,
@@ -214,7 +214,7 @@ function audit_server(string $accion, array $e = []): void {
 // ---------- Documentos ----------
 // Los mapas (por id de producto) deben viajar como objetos {} aunque estén vacíos;
 // PHP los convertiría en listas [] y la app perdería lo registrado.
-const DOC_MAPS = ['counts', 'evid', 'review', 'recount'];
+const DOC_MAPS = ['counts', 'evid', 'review', 'recount', 'venc'];
 function doc_fix_maps(array $d): array {
     foreach (DOC_MAPS as $k) {
         if (!array_key_exists($k, $d) || $d[$k] === null) continue;
@@ -237,6 +237,39 @@ function doc_for_user(array $d, array $u): array {
     }
     unset($d['review'], $d['recount'], $d['samples'], $d['recountBy']);
     return doc_fix_maps($d);
+}
+// Resumen para listar documentos sin enviar todos los productos.
+function doc_resumen(array $d): array {
+    $counts = (array) ($d['counts'] ?? []);
+    $rev = (array) ($d['review'] ?? []);
+    $old = (array) ($d['recount'] ?? []);
+    $sample = [];
+    foreach ($d['samples'] ?? [] as $s) foreach ($s['ids'] ?? [] as $x) $sample[$x] = true;
+    $contados = 0; $unid = 0; $desv = 0; $pend = 0;
+    foreach ($d['items'] ?? [] as $it) {
+        $id = $it['id'] ?? '';
+        $c = (int) ($counts[$id] ?? 0);
+        if ($c > 0) $contados++;
+        $unid += $c;
+        $dif = $c - (int) ($it['cantidad'] ?? 0);
+        if ($dif !== 0) $desv++;
+        if (($dif !== 0 || isset($sample[$id])) && !isset($rev[$id]) && !isset($old[$id])) $pend++;
+    }
+    foreach ($d['extras'] ?? [] as $x) {
+        $c = (int) ($x['cantidad'] ?? 0);
+        $unid += $c;
+        if ($c !== 0) { $desv++; if (!isset($rev[$x['id'] ?? '']) && !isset($old[$x['id'] ?? ''])) $pend++; }
+    }
+    return [
+        'tipo' => $d['tipo'] ?? 'pedido', 'nombre' => $d['nombre'] ?? '', 'sucursal' => $d['sucursal'] ?? '', 'fechaSistema' => $d['fechaSistema'] ?? '',
+        'creado' => $d['creado'] ?? null, 'creadoPor' => $d['creadoPor'] ?? '', 'finishedAt' => $d['finishedAt'] ?? null, 'contadoPor' => $d['contadoPor'] ?? '',
+        'verifiedAt' => $d['verifiedAt'] ?? null, 'verifiedBy' => $d['verifiedBy'] ?? '', 'reopened' => $d['reopened'] ?? 0,
+        'n_items' => count($d['items'] ?? []), 'contados' => $contados, 'unidades' => $unid, 'desviaciones' => $desv, 'pendientes' => $pend,
+    ];
+}
+function resumen_for_user(array $r, array $u): array {
+    if ($u['rol'] === 'auxiliar') unset($r['desviaciones'], $r['pendientes']);
+    return $r;
 }
 function doc_estado(array $d): string {
     if (!empty($d['verifiedAt'])) return 'aprobado';

@@ -6,11 +6,9 @@ $u = require_login();
 $m = method();
 
 function doc_access(array $u, string $docId): array {
-    $r = q('SELECT * FROM documentos WHERE id = ?', [$docId])->fetch();
-    if (!$r) fail('Documento no encontrado.', 404);
-    $d = doc_row_to_obj($r);
-    if (!can_see_doc($u, $d)) fail('Documento no encontrado.', 404);
-    return $d;
+    $r = q('SELECT id, sucursal, estado FROM documentos WHERE id = ?', [$docId])->fetch();
+    if (!$r || !can_see_doc($u, $r)) fail('Documento no encontrado.', 404);
+    return $r;
 }
 
 if ($m === 'GET') {
@@ -39,7 +37,7 @@ if ($m === 'DELETE') {
     $ev = q('SELECT id, documento_id FROM evidencias WHERE id = ?', [(string) ($_GET['id'] ?? '')])->fetch();
     if (!$ev) out(['ok' => true]);
     $d = doc_access($u, $ev['documento_id']);
-    if ($u['rol'] === 'auxiliar' && !empty($d['finishedAt'])) fail('El conteo ya fue finalizado.', 403);
+    if ($u['rol'] === 'auxiliar' && $d['estado'] !== 'abierto') fail('El conteo ya fue finalizado.', 403);
     q('DELETE FROM evidencias WHERE id = ?', [$ev['id']]);
     out(['ok' => true]);
 }

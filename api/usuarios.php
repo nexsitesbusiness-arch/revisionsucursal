@@ -29,7 +29,7 @@ if ($m === 'POST') {
     out(['ok' => true]);
 }
 $id = (string) ($_GET['id'] ?? '');
-$u = q('SELECT * FROM usuarios WHERE id = ? AND activo = 1', [$id])->fetch();
+$u = q('SELECT id, usuario, nombre, rol, sucursal FROM usuarios WHERE id = ? AND activo = 1', [$id])->fetch();
 if (!$u) fail('Usuario no encontrado.', 404);
 if ($m === 'PUT' && isset($in['clave'])) {
     $clave = (string) $in['clave'];

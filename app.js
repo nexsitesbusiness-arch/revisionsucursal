@@ -169,7 +169,7 @@
   }
   // Defensa extra: los mapas por producto siempre como objetos.
   function normDoc(d) {
-    ['counts', 'evid', 'review', 'recount'].forEach((k) => { if (Array.isArray(d[k]) || (k in d && !d[k])) d[k] = {}; });
+    ['counts', 'evid', 'review', 'recount', 'venc'].forEach((k) => { if (Array.isArray(d[k]) || (k in d && !d[k])) d[k] = {}; });
     ['extras', 'log', 'samples'].forEach((k) => { if (k in d && !Array.isArray(d[k])) d[k] = []; });
     return d;
   }
@@ -280,11 +280,13 @@
   // =========================================================
   // INICIO
   // =========================================================
+  // Con servidor, la lista trae solo un resumen (o._resumen): se usan sus totales.
+  const nItems = (o) => (o._resumen ? o.n_items || 0 : o.items.length);
   function orderStatus(o) {
-    const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
+    const counted = o._resumen ? o.contados || 0 : o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
     if (o.finishedAt) {
       if (!isStaff()) return { counted, key: 'done', tag: '<span class="pill ok">Finalizado</span>', diffs: 0 };
-      const d = computeResults(o).filter((r) => r.dif !== 0).length;
+      const d = o._resumen ? o.desviaciones || 0 : computeResults(o).filter((r) => r.dif !== 0).length;
       const tag = o.verifiedAt ? `<span class="pill ok">Aprobado${d ? ' · ' + d + ' dif.' : ''}</span>`
         : d ? `<span class="pill bad">${d} ${d === 1 ? 'desviación' : 'desviaciones'} · por verificar</span>` : '<span class="pill ok">Sin desviaciones</span>';
       return { counted, key: 'done', tag, diffs: d };
@@ -338,11 +340,11 @@
       <thead><tr><th>Documento</th><th>Sucursal</th><th>Avance</th><th>Estado</th><th class="num">Fecha</th></tr></thead>
       <tbody>${db.orders.slice().sort((a, b) => b.creado - a.creado).map((o) => {
         const x = orderStatus(o);
-        const pct = o.finishedAt ? 100 : (o.items.length ? Math.round((x.counted / o.items.length) * 100) : 0);
+        const pct = o.finishedAt ? 100 : (nItems(o) ? Math.round((x.counted / nItems(o)) * 100) : 0);
         return `<tr class="click" data-id="${o.id}">
-          <td><b>${esc(o.nombre || T(o).Doc)}</b><div class="sub"><span class="pill type">${T(o).Doc}</span> ${o.items.length} productos${o.contadoPor ? ' · contó ' + esc(o.contadoPor) : ''}</div></td>
+          <td><b>${esc(o.nombre || T(o).Doc)}</b><div class="sub"><span class="pill type">${T(o).Doc}</span> ${nItems(o).toLocaleString('es-CL')} productos${o.contadoPor ? ' · contó ' + esc(o.contadoPor) : ''}</div></td>
           <td class="c-branch">${esc(o.sucursal || '—')}</td>
-          <td class="c-progress"><span class="sub">${o.finishedAt ? 'Cerrado' : `${x.counted} de ${o.items.length}`}</span><div class="mini-bar"><span style="width:${pct}%"></span></div></td>
+          <td class="c-progress"><span class="sub">${o.finishedAt ? 'Cerrado' : `${x.counted.toLocaleString('es-CL')} de ${nItems(o).toLocaleString('es-CL')}`}</span><div class="mini-bar"><span style="width:${pct}%"></span></div></td>
           <td class="c-state">${x.tag}</td>
           <td class="num c-date sub">${fmtDate(o.finishedAt || o.creado)}</td>
         </tr>`;
@@ -642,7 +644,13 @@
   // =========================================================
   // PEDIDO: ENVÍO / IMPORTACIÓN
   // =========================================================
-  function openOrder(id) {
+  async function openOrder(id) {
+    // Con servidor, el detalle completo se pide al abrir el documento.
+    const cached = getOrder(id);
+    if (SERVER && cached && cached._resumen) {
+      try { replaceDoc((await api('documentos.php?id=' + encodeURIComponent(id))).documento); }
+      catch (e) { return info('No se pudo abrir', esc(e.message)); }
+    }
     current = getOrder(id);
     if (!current) return renderHome();
     show('order', current.nombre);
@@ -898,13 +906,39 @@
     const q = normText($('#search').value);
     const onlyPending = $('#onlyPending').checked;
     const cat = $('#catFilter').hidden ? '' : $('#catFilter').value;
-    let items = current.items.filter((i) => itemMatches(i, q) && (!onlyPending || !qty(i)) && (!cat || i.categoria === cat));
-    items.sort((a, b) => a.producto.localeCompare(b.producto, 'es'));
+    const items = current.items.filter((i) => itemMatches(i, q) && (!onlyPending || !qty(i)) && (!cat || i.categoria === cat));
+    items.sort((a, b) => COLLATOR.compare(a.producto, b.producto));
+    countView = { items, shown: 0 };
     const list = $('#countList');
-    list.innerHTML = items.length ? items.map(itemHtml).join('')
-      : '<li class="muted center">No hay productos que coincidan.</li>';
+    if (!items.length) list.innerHTML = '<li class="muted center">No hay productos que coincidan.</li>';
+    else { list.innerHTML = ''; showMoreCount(PAGE_FIRST); }
     renderExtras();
     renderProgress();
+  }
+
+  // Lista larga (inventarios de miles de productos): se dibuja por tandas a medida que se baja.
+  const COLLATOR = new Intl.Collator('es', { sensitivity: 'base' });
+  const PAGE_FIRST = 60, PAGE_MORE = 200;
+  let countView = { items: [], shown: 0 };
+  const moreObserver = 'IntersectionObserver' in window
+    ? new IntersectionObserver((en) => { if (en.some((e) => e.isIntersecting)) showMoreCount(PAGE_MORE); }, { rootMargin: '800px 0px' })
+    : null;
+  function showMoreCount(n) {
+    const list = $('#countList');
+    const { items } = countView;
+    const from = countView.shown, to = Math.min(items.length, from + n);
+    if (to <= from) return;
+    list.querySelector('li.more')?.remove();
+    list.insertAdjacentHTML('beforeend', items.slice(from, to).map(itemHtml).join('')
+      + (to < items.length ? `<li class="more muted center"><button class="btn ghost" type="button" data-more>Mostrar más (${(items.length - to).toLocaleString('es')} restantes)</button></li>` : ''));
+    countView.shown = to;
+    const more = list.querySelector('li.more');
+    if (more && moreObserver) { moreObserver.disconnect(); moreObserver.observe(more); }
+  }
+  // Asegura que un producto esté dibujado (por ejemplo, al escanearlo).
+  function ensureRendered(id) {
+    const idx = countView.items.findIndex((i) => i.id === id);
+    if (idx >= countView.shown) showMoreCount(idx - countView.shown + 1);
   }
 
   function itemHtml(i) {
@@ -914,7 +948,8 @@
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
       i.categoria && `<span class="opt">${esc(i.categoria)}</span>`,
-      i.vencimiento && `<span class="opt">Vence ${esc(i.vencimiento)}</span>`,
+      i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(i.vencimiento)}</span>`),
+      (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
       i.precio ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
     ].filter(Boolean).join('<span class="dot"> · </span>');
     return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
@@ -968,6 +1003,7 @@
   $('#onlyPending').onchange = () => renderCount();
 
   $('#countList').addEventListener('click', (e) => {
+    if (e.target.closest('[data-more]')) return showMoreCount(PAGE_MORE);
     const btn = e.target.closest('[data-act]');
     if (!btn || btn.tagName === 'INPUT') return;
     const item = current.items.find((i) => i.id === btn.closest('li').dataset.id);
@@ -1165,9 +1201,37 @@
     beep(true);
     const loteOk = scannedLote ? ' · lote verificado' : '';
     flash(`${ic('check')}<span>${esc(target.producto)}${target.lote ? ' · ' + esc(target.lote) : ''}${loteOk} — contados <b>${qty(target)}</b></span>`, 'ok');
+    if (gs1 && gs1.vencimiento) checkExpiry(target, gs1.vencimiento);
     // Lleva el producto a la vista
+    ensureRendered(target.id);
     const li = $(`#countList li[data-id="${target.id}"]`);
     if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
+  }
+
+  // ---------- Vencimiento leído del código (DataMatrix GS1) ----------
+  const VENC_DIAS = 90;
+  function daysTo(fecha) {
+    const t = Date.parse(fecha + 'T23:59:59-03:00');
+    return isNaN(t) ? null : Math.floor((t - Date.now()) / 86400000);
+  }
+  const fmtDay = (f) => { const [y, m, d] = String(f).split('-'); return d && m && y ? `${d}-${m}-${y}` : f; };
+  function checkExpiry(item, fecha) {
+    const dias = daysTo(fecha);
+    if (dias === null) return;
+    current.venc = current.venc || {};
+    if (dias < 0 || dias <= VENC_DIAS) {
+      const prev = current.venc[item.id];
+      // Se guarda la fecha más próxima leída para ese producto.
+      if (!prev || fecha < prev) { current.venc[item.id] = fecha; save(); }
+      if (dias < 0) {
+        beep(false);
+        flash(`${ic('alert')}<span><b>Producto vencido</b> · ${esc(item.producto)}<br>Venció el ${fmtDay(fecha)}. Sepáralo y regístralo con una foto.</span>`, 'err');
+        audit('Escaneó producto vencido', { producto: item.producto, sku: item.sku || item.codigo || null, detalle: `vencimiento ${fmtDay(fecha)}` });
+      } else {
+        flash(`${ic('alert')}<span><b>Vence pronto</b> · ${esc(item.producto)}<br>Vence el ${fmtDay(fecha)} (${dias} días).</span>`, 'warn');
+        audit('Escaneó producto por vencer', { producto: item.producto, sku: item.sku || item.codigo || null, detalle: `vence ${fmtDay(fecha)} · ${dias} días` });
+      }
+    }
   }
 
   // Lector de código de barras USB/Bluetooth (o tipear código + Enter) en el buscador.
@@ -1384,6 +1448,7 @@
     $('#btnRandom').hidden = !!current.verifiedAt;
   }
 
+  let resultsLimit = { sig: '', n: 100 };
   function renderResultsTable() {
     const rows = computeResults(current);
     const { key } = classifyABC(rows);
@@ -1403,7 +1468,7 @@
       }[f] || (() => true);
       list = rows.filter(pass);
     }
-    list.sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a) || a.producto.localeCompare(b.producto, 'es'));
+    list.sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a) || COLLATOR.compare(a.producto, b.producto));
     if (!list.length) {
       const msg = q ? `No hay productos que coincidan con “${esc($('#reportSearch').value)}”.`
         : f === 'pend' ? 'No quedan desviaciones pendientes de revisión.' : f === 'muestra' ? 'Aún no hay revisión aleatoria. Usa el botón Revisión aleatoria.'
@@ -1413,7 +1478,10 @@
     }
     const t = T(current);
     const locked = !!current.verifiedAt;
-    const shown = list.slice(0, 400);
+    // Se dibujan 100 filas y se agregan más a pedido (con 1.000+ desviaciones la tablet no se traba).
+    const sig = f + '|' + q + '|' + current.id;
+    if (sig !== resultsLimit.sig) resultsLimit = { sig, n: 100 };
+    const shown = list.slice(0, resultsLimit.n);
     $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
       <thead><tr><th>Clase</th><th>Producto</th><th class="num">${t.debia}</th><th class="num">Contado</th><th class="num">Dif.</th><th class="num">Valor</th><th>Revisión QF</th></tr></thead>
       <tbody>${shown.map((r) => {
@@ -1422,7 +1490,7 @@
         return `<tr data-rid="${r.id}" class="${rv ? 'verified' : ''}">
         <td data-label="Clase">${r.abc ? `<span class="abc ${r.abc}">${r.abc}</span>` : ''}</td>
         <td data-label="Producto" class="c-prod"><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>
-          <div class="state-cell" style="margin-top:6px"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${r.muestra ? '<span class="pill sample">Aleatoria</span>' : ''}</div>${evHtml(r.id)}</td>
+          <div class="state-cell" style="margin-top:6px"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${r.muestra ? '<span class="pill sample">Aleatoria</span>' : ''}${vencPill(r.id)}</div>${evHtml(r.id)}</td>
         <td data-label="${t.debia}" class="num">${r.esperado.toLocaleString('es-CL')}</td>
         <td data-label="Contado" class="num">${r.contadoAux.toLocaleString('es-CL')}${r.recuento !== null ? `<div class="sub">QF: ${r.recuento.toLocaleString('es-CL')}</div>` : ''}</td>
         <td data-label="Dif." class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif.toLocaleString('es-CL')}</td>
@@ -1434,7 +1502,7 @@
         </div></td>
       </tr>`;
       }).join('')}</tbody></table></div>
-      ${list.length > shown.length ? `<p class="small muted" style="padding:10px 14px;margin:0">Mostrando ${shown.length} de ${list.length.toLocaleString('es-CL')}. Usa el buscador o los filtros, o exporta a Excel para ver todo.</p>` : ''}</div>`;
+      ${list.length > shown.length ? `<p class="small muted center" style="padding:10px 14px;margin:0">Mostrando ${shown.length.toLocaleString('es-CL')} de ${list.length.toLocaleString('es-CL')} · <button class="btn sm ghost" type="button" data-more-res>Mostrar ${Math.min(200, list.length - shown.length)} más</button></p>` : ''}</div>`;
     fillPhotos($('#resultsTable'));
   }
 
@@ -1504,6 +1572,7 @@
   }
 
   $('#resultsTable').addEventListener('click', (e) => {
+    if (e.target.closest('[data-more-res]')) { resultsLimit.n += 200; return renderResultsTable(); }
     const b = e.target.closest('[data-review]');
     if (b) openReview(b.dataset.review);
   });
@@ -1579,6 +1648,12 @@
   };
   $('#btnDocLog').onclick = () => renderLog({ docId: current.id });
 
+  function vencPill(id) {
+    const f = (current.venc || {})[id];
+    if (!f) return '';
+    const d = daysTo(f);
+    return d < 0 ? `<span class="pill bad">Vencido ${fmtDay(f)}</span>` : `<span class="pill warn">Vence ${fmtDay(f)}</span>`;
+  }
   function evHtml(id) {
     const ev = evOf(current, id);
     if (!ev) return '';
@@ -1618,6 +1693,7 @@
         'Revisión QF': rv ? (rv.decision === 'corregida' ? 'Corregida' : 'Cantidad correcta') : (mustReview(r) ? 'Pendiente' : ''),
         'Observación QF': rv?.obs || '', 'Revisado por': rv?.por || '', 'Fecha revisión': rv?.ts ? fmtDate(rv.ts) : '', 'Tiempo de revisión (s)': rv?.seg ?? '',
         'Revisión aleatoria': r.muestra ? 'Sí' : '',
+        'Vencimiento leído': (current.venc || {})[r.id] ? fmtDay(current.venc[r.id]) : '',
         'Motivo (conteo)': ev?.motivo || '', 'Nota (conteo)': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 }));
     });
   }
@@ -1829,7 +1905,7 @@
       ...(isAdmin() ? [['users', 'users', 'Usuarios'], ['catalog', 'list', 'Maestro de productos']] : []),
       ...(isStaff() ? [['log', 'history', 'Bitácora']] : []),
       ...(isAdmin() && !SERVER ? [['export', 'download', 'Exportar configuración'], ['import', 'upload', 'Importar configuración']] : []),
-      ['pass', 'lock', 'Cambiar mi contraseña'], ['logout', 'logout', 'Cerrar sesión'],
+      ['pass', 'lock', 'Cambiar mi contraseña'], ['privacy', 'shield', 'Privacidad y mis datos'], ['logout', 'logout', 'Cerrar sesión'],
     ];
     const r = await ask({ title: 'Mi cuenta',
       html: `<div class="menu-who"><span class="avatar">${esc(initials(me.nombre))}</span><div><b>${esc(me.nombre)}</b><div class="small muted">${esc(me.usuario)} · ${rolName(me.rol)}${me.sucursal ? ' · ' + esc(me.sucursal) : ''}</div></div></div>
@@ -1843,6 +1919,7 @@
     }
     else if (r.value === 'users') renderUsers();
     else if (r.value === 'log') renderLog();
+    else if (r.value === 'privacy') showPrivacy();
     else if (r.value === 'catalog') renderCatalog();
     else if (r.value === 'export') exportConfig();
     else if (r.value === 'import') pickFile('.json', (f) => importConfig(f));
@@ -1902,6 +1979,7 @@
         <td><div class="row-actions">
           <button class="btn sm ghost" data-uact="edit">${ic('edit')} Editar</button>
           <button class="btn sm ghost" data-uact="pass">${ic('lock')} Contraseña</button>
+          <button class="btn sm ghost" data-uact="data">${ic('download')} Datos</button>
           ${u.id !== me.id ? `<button class="btn sm ghost danger" data-uact="del">${ic('trash')}</button>` : ''}
         </div></td></tr>`).join('')}</tbody></table></div>`;
   }
@@ -1913,6 +1991,7 @@
     if (!u) return;
     if (b.dataset.uact === 'edit') editUser(u);
     else if (b.dataset.uact === 'pass') changePassword(u, true);
+    else if (b.dataset.uact === 'data') exportUserData(u);
     else if (b.dataset.uact === 'del') deleteUser(u);
   });
   async function editUser(u) {
@@ -2273,13 +2352,20 @@
     audit('Vio la bitácora', { docId: fromDoc ? fromDoc.id : null, doc: fromDoc ? fromDoc.nombre : null, detalle: fromDoc ? 'filtrada por documento' : null });
     $('#logStatus').hidden = true;
     if (SERVER) {
+      // Con servidor: filtros, totales y páginas los resuelve el servidor.
       await flushAudit();
       try {
-        const r = await api('bitacora.php' + (fromDoc ? '?doc=' + encodeURIComponent(fromDoc.id) : ''));
-        logRows = r.registros.map((x) => ({ n: +x.n, ts: +x.ts_ms, usuarioId: x.usuario_id, usuario: x.usuario, nombre: x.nombre, rol: x.rol, accion: x.accion,
-          docId: x.doc_id, doc: x.doc, sucursal: x.sucursal, producto: x.producto, sku: x.sku, detalle: x.detalle,
-          duracionSeg: x.duracion_seg == null ? null : +x.duracion_seg, resultado: x.resultado, equipo: x.equipo, ip: x.ip, hash: x.hash }));
-      } catch (e) { logRows = []; info('No se pudo cargar la bitácora', esc(e.message)); }
+        const o = await api('bitacora.php?opciones=1');
+        const fill = (sel, label, pairs) => { sel.innerHTML = `<option value="">${label}</option>` + pairs.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''); };
+        fill($('#logUser'), 'Todos los usuarios', o.usuarios.map((x) => [x.usuario, x.nombre ? `${x.nombre} (${x.usuario})` : x.usuario]));
+        fill($('#logAction'), 'Todas las acciones', o.acciones.map((x) => [x, x]));
+        const docs = o.documentos.map((x) => [x.doc_id, x.doc || x.doc_id]);
+        if (fromDoc && !docs.some(([id]) => id === fromDoc.id)) docs.unshift([fromDoc.id, fromDoc.nombre]);
+        fill($('#logDoc'), 'Todos los documentos', docs);
+      } catch (e) { return info('No se pudo cargar la bitácora', esc(e.message)); }
+      $('#logUser').value = ''; $('#logAction').value = ''; $('#logDoc').value = filter.docId || '';
+      $('#logFrom').value = ''; $('#logTo').value = ''; $('#logText').value = '';
+      return loadLogPage(true);
     } else logRows = (await Bitacora.all()).reverse();
     logLimit = 200;
     const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
@@ -2299,7 +2385,32 @@
   }
   // Fecha local de Santiago (aaaa-mm-dd) para comparar con los filtros de fecha.
   const dayKey = (ts) => { const p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ts)).forEach((x) => { p[x.type] = x.value; }); return `${p.year}-${p.month}-${p.day}`; };
+  const mapLogRow = (x) => ({ n: +x.n, ts: +x.ts_ms, usuarioId: x.usuario_id, usuario: x.usuario, nombre: x.nombre, rol: x.rol, accion: x.accion,
+    docId: x.doc_id, doc: x.doc, sucursal: x.sucursal, producto: x.producto, sku: x.sku, detalle: x.detalle,
+    duracionSeg: x.duracion_seg == null ? null : +x.duracion_seg, resultado: x.resultado, equipo: x.equipo, ip: x.ip, hash: x.hash });
+  function logQuery(extra = {}) {
+    const p = new URLSearchParams();
+    const add = (k, v) => { if (v) p.set(k, v); };
+    add('usuario', $('#logUser').value); add('accion', $('#logAction').value); add('doc', $('#logDoc').value);
+    add('desde', $('#logFrom').value); add('hasta', $('#logTo').value); add('texto', $('#logText').value.trim());
+    Object.entries(extra).forEach(([k, v]) => add(k, v));
+    return 'bitacora.php?' + p.toString();
+  }
+  let logStats = null, logMore = false;
+  async function loadLogPage(reset) {
+    try {
+      const last = logRows.length ? logRows[logRows.length - 1].n : 0;
+      const r = await api(logQuery(reset ? { limite: 200 } : { limite: 200, antes_de: last }));
+      const rows = r.registros.map(mapLogRow);
+      logRows = reset ? rows : logRows.concat(rows);
+      if (r.stats) logStats = r.stats;
+      logMore = rows.length === 200;
+    } catch (e) { if (reset) logRows = []; info('No se pudo cargar la bitácora', esc(e.message)); }
+    renderLogList();
+  }
+  let logTextTimer;
   function filteredLog() {
+    if (SERVER) return logRows;
     const u = $('#logUser').value, a = $('#logAction').value, d = $('#logDoc').value;
     const from = $('#logFrom').value, to = $('#logTo').value, q = normText($('#logText').value);
     return logRows.filter((r) => (!u || r.usuario === u) && (!a || r.accion === a) && (!d || r.docId === d)
@@ -2308,17 +2419,21 @@
   }
   function renderLogList() {
     const list = filteredLog();
-    const people = new Set(list.map((r) => r.usuario).filter(Boolean));
-    const reviews = list.filter((r) => /Revisó producto|Modificó revisión/.test(r.accion));
-    const segRev = reviews.reduce((s, r) => s + (r.duracionSeg || 0), 0);
-    const denied = list.filter((r) => r.resultado === 'denegado').length;
+    let st;
+    if (SERVER && logStats) {
+      st = { n: +logStats.registros, total: +logStats.total, people: +logStats.usuarios, reviews: +logStats.revisiones || 0, avg: logStats.seg_revision == null ? null : Math.round(+logStats.seg_revision), denied: +logStats.denegados || 0 };
+    } else {
+      const reviews = list.filter((r) => /Revisó producto|Modificó revisión/.test(r.accion));
+      st = { n: list.length, total: logRows.length, people: new Set(list.map((r) => r.usuario).filter(Boolean)).size, reviews: reviews.length,
+        avg: reviews.length ? Math.round(reviews.reduce((s, r) => s + (r.duracionSeg || 0), 0) / reviews.length) : null, denied: list.filter((r) => r.resultado === 'denegado').length };
+    }
     $('#logStats').innerHTML = `
-      <div class="kpi"><div class="l">Registros</div><div class="v">${list.length.toLocaleString('es-CL')}</div><div class="s">de ${logRows.length.toLocaleString('es-CL')} en total</div></div>
-      <div class="kpi"><div class="l">Usuarios</div><div class="v">${people.size}</div><div class="s">con actividad en el filtro</div></div>
-      <div class="kpi"><div class="l">Productos revisados</div><div class="v">${reviews.length.toLocaleString('es-CL')}</div><div class="s">${reviews.length ? 'promedio ' + fmtSecs(Math.round(segRev / reviews.length)) + ' por producto' : 'sin revisiones'}</div></div>
-      <div class="kpi ${denied ? 'bad' : ''}"><div class="l">Accesos denegados</div><div class="v">${denied}</div><div class="s">intentos fallidos o sin permiso</div></div>`;
+      <div class="kpi"><div class="l">Registros</div><div class="v">${st.n.toLocaleString('es-CL')}</div><div class="s">de ${st.total.toLocaleString('es-CL')} en total</div></div>
+      <div class="kpi"><div class="l">Usuarios</div><div class="v">${st.people}</div><div class="s">con actividad en el filtro</div></div>
+      <div class="kpi"><div class="l">Productos revisados</div><div class="v">${st.reviews.toLocaleString('es-CL')}</div><div class="s">${st.reviews ? 'promedio ' + fmtSecs(st.avg) + ' por producto' : 'sin revisiones'}</div></div>
+      <div class="kpi ${st.denied ? 'bad' : ''}"><div class="l">Accesos denegados</div><div class="v">${st.denied}</div><div class="s">intentos fallidos o sin permiso</div></div>`;
     if (!list.length) { $('#logList').innerHTML = '<div class="empty">No hay registros con estos filtros.</div>'; return; }
-    const shown = list.slice(0, logLimit);
+    const shown = SERVER ? list : list.slice(0, logLimit);
     $('#logList').innerHTML = `<div class="table-wrap"><table class="log">
       <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Documento</th><th>Producto</th><th>Detalle</th><th class="num">Tiempo</th></tr></thead>
       <tbody>${shown.map((r) => `<tr>
@@ -2330,12 +2445,18 @@
         <td class="small">${esc(r.detalle || '')}<div class="sub">${esc(r.equipo || '')}</div></td>
         <td class="num">${r.duracionSeg != null ? fmtSecs(r.duracionSeg) : ''}</td>
       </tr>`).join('')}</tbody></table></div>
-      ${list.length > shown.length ? `<div class="actions" style="justify-content:center;padding:12px"><button class="btn" id="btnLogMore">Mostrar 200 más (quedan ${(list.length - shown.length).toLocaleString('es-CL')})</button></div>` : ''}`;
+      ${SERVER ? (logMore ? `<div class="actions" style="justify-content:center;padding:12px"><button class="btn" id="btnLogMore">Mostrar 200 más (quedan ${(st.n - list.length).toLocaleString('es-CL')})</button></div>` : '')
+        : list.length > shown.length ? `<div class="actions" style="justify-content:center;padding:12px"><button class="btn" id="btnLogMore">Mostrar 200 más (quedan ${(list.length - shown.length).toLocaleString('es-CL')})</button></div>` : ''}`;
     const more = $('#btnLogMore');
-    if (more) more.onclick = () => { logLimit += 200; renderLogList(); };
+    if (more) more.onclick = () => { if (SERVER) loadLogPage(false); else { logLimit += 200; renderLogList(); } };
   }
-  ['logUser', 'logAction', 'logDoc', 'logFrom', 'logTo'].forEach((id) => { $('#' + id).onchange = () => { logLimit = 200; renderLogList(); }; });
-  $('#logText').oninput = () => { logLimit = 200; renderLogList(); };
+  ['logUser', 'logAction', 'logDoc', 'logFrom', 'logTo'].forEach((id) => { $('#' + id).onchange = () => { logLimit = 200; if (SERVER) loadLogPage(true); else renderLogList(); }; });
+  $('#logText').oninput = () => {
+    logLimit = 200;
+    if (!SERVER) return renderLogList();
+    clearTimeout(logTextTimer);
+    logTextTimer = setTimeout(() => loadLogPage(true), 300);
+  };
   $('#btnLogVerify').onclick = async () => {
     const st = $('#logStatus');
     st.className = 'load-status busy'; st.hidden = false;
@@ -2350,16 +2471,68 @@
     st.innerHTML = r.ok ? `${ic('check')}<span>Bitácora íntegra: ${r.total.toLocaleString('es-CL')} registros sin alteraciones.</span>`
       : `${ic('alert')}<span><b>Se detectó una alteración:</b> ${esc(r.motivo)}${r.malo ? ` (registro del ${fmtDate(r.malo.ts, true)})` : ''}.</span>`;
   };
-  $('#btnLogExport').onclick = () => {
-    const list = filteredLog();
+  $('#btnLogExport').onclick = async () => {
+    let list = filteredLog();
+    if (SERVER) {
+      try { list = (await api(logQuery({ limite: 50000, exportar: 1 }))).registros.map(mapLogRow); }
+      catch (e) { return info('No se pudo exportar', esc(e.message)); }
+    }
     const rows = list.map((r) => ({ 'N°': r.n || r.id, 'Fecha y hora (Santiago)': fmtDate(r.ts, true), 'Usuario': r.usuario || '', 'Nombre': r.nombre || '', 'Rol': r.rol ? rolName(r.rol) : '',
       'Acción': r.accion, 'Resultado': r.resultado || '', 'Documento': r.doc || '', 'Sucursal': r.sucursal || '', 'Producto': r.producto || '', 'Código': r.sku || '',
       'Detalle': r.detalle || '', 'Tiempo (s)': r.duracionSeg ?? '', 'Equipo': r.equipo || '', ...(SERVER ? { 'IP': r.ip || '' } : {}), 'Hash': r.hash || '' })).map(safeRow);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Bitácora');
     XLSX.writeFile(wb, `bitacora-${dayKey(Date.now())}.xlsx`);
-    audit('Exportó la bitácora', { detalle: `${rows.length} registros` });
+    if (!SERVER) audit('Exportó la bitácora', { detalle: `${rows.length} registros` });
   };
+
+  // =========================================================
+  // PRIVACIDAD (Ley 19.628 modificada por la Ley 21.719)
+  // =========================================================
+  const CONSERVACION = '2 años desde el registro, salvo que la ley o un proceso en curso exija conservarlos más tiempo';
+  function showPrivacy() {
+    if (me) audit('Leyó la política de privacidad');
+    ask({ title: 'Política de privacidad',
+      html: `<div class="privacy-doc">
+        <p class="small muted">Plantilla preparada para el responsable del tratamiento. <b>Debe revisarla un abogado</b> y completar los datos de contacto antes de usarla en producción.</p>
+        <h4>Quién es responsable</h4>
+        <p>El empleador que usa esta app (por ejemplo, la cadena de farmacias) es el responsable de los datos. Contacto para ejercer derechos: <b>[completar correo o área responsable]</b>.</p>
+        <h4>Qué datos se registran</h4>
+        <ul>
+          <li>De cada usuario: nombre, usuario, rol y sucursal. La contraseña se guarda cifrada y nadie puede verla.</li>
+          <li>Actividad en la app (bitácora): inicios y cierres de sesión, documentos abiertos, cantidades registradas, revisiones y su tiempo, revisiones aleatorias, exportaciones y cambios de administración, con fecha, hora y equipo${SERVER ? ', y la dirección IP' : ''}.</li>
+          <li>Fotos de evidencia de productos, cuando el usuario las toma.</li>
+        </ul>
+        <p>No se registran datos sensibles (salud, biometría ni datos bancarios).</p>
+        <h4>Para qué se usan</h4>
+        <p>Únicamente para controlar la recepción de pedidos y los inventarios de las sucursales, revisar diferencias y mantener trazabilidad de quién hizo cada registro.</p>
+        <h4>Quién puede verlos</h4>
+        <p>La bitácora solo la ven los administradores y los químicos farmacéuticos (QF). Los auxiliares no ven la actividad de otros.</p>
+        <h4>Dónde se guardan y por cuánto tiempo</h4>
+        <p>${SERVER ? 'En el servidor central de la empresa (Google Cloud), con acceso restringido y respaldos.' : 'En este equipo (navegador).'} Plazo de conservación: ${CONSERVACION}.</p>
+        <h4>Tus derechos</h4>
+        <p>Puedes pedir acceso a tus datos, su rectificación, supresión, oposición, portabilidad o bloqueo. El administrador puede exportar todos tus datos desde Usuarios → Datos. Los registros de la bitácora no se modifican, porque son prueba de lo ocurrido; si algo es incorrecto, se deja constancia con un registro nuevo.</p>
+      </div>`,
+      buttons: [{ label: 'Cerrar', value: '', cls: 'primary' }] });
+  }
+  $('#btnPrivacyLogin').onclick = () => showPrivacy();
+
+  // Acceso y portabilidad: exporta en Excel los datos de un usuario y toda su actividad.
+  async function exportUserData(u) {
+    let rows;
+    if (SERVER) {
+      try { rows = (await api('bitacora.php?limite=50000&exportar=1&usuario_id=' + encodeURIComponent(u.id))).registros.map((x) => ({ ts: +x.ts_ms, accion: x.accion, doc: x.doc, sucursal: x.sucursal, producto: x.producto, sku: x.sku, detalle: x.detalle, duracionSeg: x.duracion_seg, resultado: x.resultado, equipo: x.equipo, ip: x.ip })); }
+      catch (e) { return info('No se pudo exportar', esc(e.message)); }
+    } else rows = (await Bitacora.all()).filter((x) => x.usuarioId === u.id || x.usuario === u.usuario);
+    const perfil = [['Nombre', u.nombre], ['Usuario', u.usuario], ['Rol', rolName(u.rol)], ['Sucursal', u.sucursal || ''], ['Exportado el', fmtDate(Date.now(), true)], ['Exportado por', me.nombre]].map(([k, v]) => [k, safeCell(v)]);
+    const act = rows.map((r) => safeRow({ 'Fecha y hora (Santiago)': fmtDate(r.ts, true), 'Acción': r.accion, 'Documento': r.doc || '', 'Sucursal': r.sucursal || '', 'Producto': r.producto || '',
+      'Código': r.sku || '', 'Detalle': r.detalle || '', 'Tiempo (s)': r.duracionSeg ?? '', 'Resultado': r.resultado || '', 'Equipo': r.equipo || '', ...(SERVER ? { 'IP': r.ip || '' } : {}) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(perfil), 'Datos del usuario');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(act.length ? act : [{ 'Actividad': 'Sin registros' }]), 'Actividad');
+    XLSX.writeFile(wb, `datos-${safeName(u.usuario)}-${dayKey(Date.now())}.xlsx`);
+    audit('Exportó datos personales de un usuario', { detalle: `${u.usuario} · ${rows.length} registros` });
+  }
 
   // ---------- Utilidades ----------
   function download(blob, name) {

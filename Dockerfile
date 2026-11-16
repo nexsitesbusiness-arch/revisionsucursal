@@ -2,12 +2,13 @@
 # La conexión a la base (Cloud SQL) se configura con variables de entorno y Secret Manager.
 FROM mirror.gcr.io/library/php:8.3-apache
 
-RUN docker-php-ext-install pdo_mysql \
+RUN docker-php-ext-install pdo_mysql opcache \
  && a2enmod headers rewrite remoteip \
  && echo "expose_php = Off" > /usr/local/etc/php/conf.d/seguridad.ini \
  && echo "display_errors = Off" >> /usr/local/etc/php/conf.d/seguridad.ini \
  && echo "log_errors = On" >> /usr/local/etc/php/conf.d/seguridad.ini \
- && echo "session.cookie_httponly = 1" >> /usr/local/etc/php/conf.d/seguridad.ini
+ && echo "session.cookie_httponly = 1" >> /usr/local/etc/php/conf.d/seguridad.ini \
+ && printf "opcache.enable=1\nopcache.validate_timestamps=0\nopcache.memory_consumption=64\n" > /usr/local/etc/php/conf.d/opcache.ini
 
 COPY servidor/apache.conf /etc/apache2/sites-available/000-default.conf
 RUN sed -i 's/^ServerTokens .*/ServerTokens Prod/; s/^ServerSignature .*/ServerSignature Off/' /etc/apache2/conf-available/security.conf \

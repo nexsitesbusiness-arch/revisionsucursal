@@ -13,7 +13,7 @@ if ((int) $lk['bloqueado_hasta'] > now_ms()) {
     audit_server('Inicio de sesión bloqueado', ['usuario' => $usuario, 'resultado' => 'denegado', 'detalle' => 'demasiados intentos fallidos']);
     fail('Demasiados intentos fallidos. Espera ' . (int) ceil(((int) $lk['bloqueado_hasta'] - now_ms()) / 60000) . ' min y vuelve a intentar.', 429);
 }
-$u = q('SELECT * FROM usuarios WHERE usuario = ? AND activo = 1', [$usuario])->fetch();
+$u = q('SELECT id, usuario, nombre, rol, sucursal, clave_hash FROM usuarios WHERE usuario = ? AND activo = 1', [$usuario])->fetch();
 // Se verifica igual aunque el usuario no exista, para no revelar cuáles existen por el tiempo de respuesta.
 $ok = password_verify($clave, $u['clave_hash'] ?? '$2y$10$jYDFi/XL3rNALvRzoQpCZO7qJ3PXvfx8I6Q629dYC71/4isL0Wl6.');
 if (!$u || !$ok) {
