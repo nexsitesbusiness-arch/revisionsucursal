@@ -7,6 +7,8 @@ Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 - Al escanear una caja con DataMatrix (trae lote) en un inventario, el producto quedaba como "Lote distinto" y sin contar, porque los inventarios no tienen lote cargado. Ahora, si el producto no tiene lote en el documento, se cuenta normal.
 - El auxiliar ya no ve el motivo "Lote distinto al enviado" en los productos que agrega (conteo a ciegas). El QF y el administrador sí lo ven.
 - Se detectó al grabar la guía en video con la app real.
+- El auxiliar ya no ve el precio de los productos en la lista del pedido (modo sin servidor; con servidor ya se quitaba).
+- El vencimiento de cada producto se muestra en formato dd-mm-aaaa.
 
 ## 16-11-2026 · Versión 1.0: servidor, vencimiento, privacidad y rendimiento
 

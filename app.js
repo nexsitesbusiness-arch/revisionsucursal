@@ -948,9 +948,10 @@
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
       i.categoria && `<span class="opt">${esc(i.categoria)}</span>`,
-      i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(i.vencimiento)}</span>`),
+      i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(fmtDay(i.vencimiento))}</span>`),
       (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
-      i.precio ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
+      // El auxiliar cuenta a ciegas: nunca ve costos.
+      i.precio && isStaff() ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
     ].filter(Boolean).join('<span class="dot"> · </span>');
     return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
       <span class="st">${ic('check')}</span>
