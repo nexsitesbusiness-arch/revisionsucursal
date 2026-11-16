@@ -25,7 +25,7 @@
   const fmtSecs = (s) => (s == null ? '' : s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 
   // ---------- Normalización ----------
-  const stripAccents = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const stripAccents = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const normText = (s) => stripAccents(s).toLowerCase().trim();
   // Códigos: sin espacios; si es numérico, sin ceros a la izquierda (GTIN-14 == EAN-13).
   function normCode(c) {

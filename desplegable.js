@@ -3,7 +3,7 @@
 // Con más de 8 opciones muestra un buscador. Se maneja con teclado (flechas, Enter, Esc).
 (function (global) {
   'use strict';
-  const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const valueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
   let openDd = null;
 
