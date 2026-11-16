@@ -285,18 +285,24 @@ ul.items { list-style: none; margin: 0; padding: 0; }
 /* ---------- Resultados ---------- */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 14px; }
 .good-msg { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--ok); font-weight: 700; font-size: 17px; padding: 36px 18px; }
-@media (max-width: 600px) {
+@media (max-width: 900px) {
   table.results thead { display: none; }
-  table.results tr { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 10px; padding: 12px 14px; border-bottom: 1px solid var(--rule); }
-  table.results td { border: 0; padding: 0; }
-  table.results td:nth-child(1) { grid-column: 1 / -1; }
-  table.results td:nth-child(5) { grid-column: 1 / -1; }
+  table.results tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; padding: 14px 16px; border-bottom: 1px solid var(--rule); }
+  table.results td { border: 0; padding: 0; text-align: left; }
+  table.results td[data-label="Clase"] { grid-column: 1 / -1; }
+  table.results td[data-label="Clase"]:empty { display: none; }
+  table.results td.c-prod { grid-column: 1 / -1; }
+  table.results td[data-label="Estado"] { grid-column: span 3; align-self: end; }
+  table.results td.num::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
   table.results td.num { text-align: left; }
-  table.results td.num::before { display: block; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-  table.results td:nth-child(2)::before { content: "Llegó"; }
-  table.results td:nth-child(3)::before { content: "Debía"; }
-  table.results td:nth-child(4)::before { content: "Dif."; }
+  table.results tbody tr:last-child { border-bottom: 0; }
 }
+@media (max-width: 480px) {
+  table.results tr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  table.results td[data-label="Estado"] { grid-column: 1 / -1; }
+}
+
+
 
 /* ---------- Diálogo ---------- */
 dialog { border: 1px solid var(--border); border-radius: 14px; padding: 22px; width: min(94vw, 480px); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
@@ -373,7 +379,7 @@ select { font: inherit; color: var(--text); background: var(--surface); border: 
 .btn.wide { width: 100%; }
 .login-error { margin: 0; color: var(--bad); background: var(--bad-soft); padding: 8px 12px; border-radius: 10px; font-size: 14px; }
 .login-foot { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 12px; display: grid; gap: 6px; }
-.role-sucursal .admin-only { display: none !important; }
+.role-qf .admin-only, .role-auxiliar .admin-only, .role-auxiliar .staff-only { display: none !important; }
 .menu-list { display: grid; gap: 6px; }
 .menu-list .btn { justify-content: flex-start; border-radius: 12px; min-height: 48px; }
 .menu-who { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -383,3 +389,18 @@ select { font: inherit; color: var(--text); background: var(--surface); border: 
 .pill.type { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
 .cat-table td, .cat-table th { padding: 8px 14px; }
 @media (max-width: 600px) { .sel-sm { max-width: 130px; } }
+
+/* ---------- Reporte ABC ---------- */
+.abc { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 8px; font-weight: 800; font-size: 13px; }
+.abc.A { background: var(--bad-soft); color: var(--bad); }
+.abc.B { background: var(--warn-soft); color: var(--warn); }
+.abc.C { background: var(--surface-2); color: var(--muted); border: 1px solid var(--rule); }
+.abc-v { display: flex; gap: 6px; flex-wrap: wrap; font-size: 18px !important; }
+.abc-v .abc { height: 32px; font-size: 15px; }
+input.rec { width: 84px; margin: 0; text-align: right; padding: 7px 10px; font-weight: 700; }
+tr.verified td { background: color-mix(in srgb, var(--ok-soft) 45%, transparent); }
+.big-pill { font-size: 13px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; }
+.big-pill svg.ic { width: 15px; height: 15px; }
+.state-cell .pill svg.ic { width: 12px; height: 12px; vertical-align: -1px; }
+.done-ok { width: 64px; height: 64px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); display: grid; place-items: center; margin: 4px auto 12px; }
+.done-ok svg.ic { width: 34px; height: 34px; stroke-width: 2.5; }

@@ -29,16 +29,25 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 ## Usuarios e inicio de sesión
 
 - La primera vez la app pide crear el **administrador** (nombre, usuario y contraseña).
-- El administrador crea usuarios desde el menú de usuario → **Usuarios**, con dos roles:
-  - **Administrador:** carga pedidos, inventarios y el maestro, ve las cantidades, reabre conteos y administra usuarios.
-  - **Sucursal:** solo cuenta (sin ver las cantidades) y ve las diferencias al cerrar. Su nombre queda como "Contado por".
+- El administrador crea usuarios desde el menú de usuario → **Usuarios**, con tres roles:
+  - **Administrador:** carga pedidos, inventarios, maestro y costos; administra usuarios; reabre conteos.
+  - **QF:** ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
+  - **Auxiliar:** solo digita cantidades. No ve cantidades del sistema, ni totales, ni si lo que digita coincide. Al finalizar recibe solo un "Conteo finalizado".
 - Las contraseñas se guardan cifradas (PBKDF2) en el equipo, nunca en texto.
 - Para usar los mismos usuarios y el maestro en otra tablet: menú → **Exportar configuración** y, en la otra tablet, **Importar configuración**.
 - Limitación: sin servidor, los usuarios viven en cada equipo. Sirve para identificar quién cuenta y limitar lo que ve cada uno en una tablet compartida, no como seguridad frente a alguien con conocimientos técnicos.
 
+## Flujo de un inventario
+
+1. **Administrador:** carga el maestro, los costos y el reporte de existencias.
+2. **Auxiliar:** cuenta a ciegas (escaneando o digitando) y finaliza.
+3. **QF:** abre el **Reporte de desviaciones**, ordenado por **clase ABC** (A = desviaciones que suman el 80 % del valor, B = siguiente 15 %, C = resto). Recuenta empezando por la clase A, escribe el **Recuento QF** (reemplaza lo contado por el auxiliar) y **aprueba**. El Excel trae Sistema, Contado auxiliar, Recuento QF, Cantidad final, Costo y Valor de la diferencia.
+
+Sin costos cargados, el orden ABC se calcula por unidades de diferencia (la app lo avisa).
+
 ## Maestro de productos
 
-Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Material*, *Texto breve de material*, *Unidad medida base*, *Código EAN/UPC*). Con el maestro, al escanear el código de barras de una caja la app sabe qué producto es, también en pedidos.
+Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Material*, *Texto breve de material*, *Unidad medida base*, *Código EAN/UPC*). Con **Subir costos** se agrega un Excel con *Material* (o código de barras) y *Precio* o *Costo*, usado para el orden ABC. Con el maestro, al escanear el código de barras de una caja la app sabe qué producto es, también en pedidos.
 
 ## Inventarios
 

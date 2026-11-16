@@ -62,7 +62,10 @@
   // ---------- Navegación ----------
   let current = null; // pedido o inventario abierto
   let me = null; // usuario con sesión iniciada
-  const isAdmin = () => !!me && me.rol === 'admin';
+  // Roles: admin (todo), qf (revisa y verifica desviaciones), auxiliar (solo cuenta, a ciegas).
+  const role = () => (me ? (me.rol === 'sucursal' ? 'auxiliar' : me.rol) : null);
+  const isAdmin = () => role() === 'admin';
+  const isStaff = () => role() === 'admin' || role() === 'qf';
   const views = ['login', 'home', 'load', 'order', 'count', 'results', 'users', 'catalog', 'inv'];
   function show(view, title) {
     views.forEach((v) => { $('#view-' + v).hidden = v !== view; });
@@ -103,8 +106,11 @@
   function orderStatus(o) {
     const counted = o.items.filter((i) => (o.counts[i.id] || 0) > 0).length;
     if (o.finishedAt) {
+      if (!isStaff()) return { counted, key: 'done', tag: '<span class="pill ok">Finalizado</span>', diffs: 0 };
       const d = computeResults(o).filter((r) => r.dif !== 0).length;
-      return { counted, key: 'done', tag: d ? `<span class="pill bad">${d} ${d === 1 ? 'diferencia' : 'diferencias'}</span>` : '<span class="pill ok">Correcto</span>', diffs: d };
+      const tag = o.verifiedAt ? `<span class="pill ok">Aprobado${d ? ' · ' + d + ' dif.' : ''}</span>`
+        : d ? `<span class="pill bad">${d} ${d === 1 ? 'desviación' : 'desviaciones'} · por verificar</span>` : '<span class="pill ok">Sin desviaciones</span>';
+      return { counted, key: 'done', tag, diffs: d };
     }
     return { counted, key: counted ? 'counting' : 'new', tag: counted ? '<span class="pill warn">En conteo</span>' : '<span class="pill">Sin contar</span>', diffs: 0 };
   }
@@ -112,17 +118,20 @@
   function renderHome() {
     current = null;
     show('home');
-    $('#homeKicker').textContent = me ? (isAdmin() ? 'Central' : 'Sucursal') + ' · ' + me.nombre : 'Inicio';
+    $('#homeKicker').textContent = me ? rolName(role()) + ' · ' + me.nombre : 'Inicio';
     const st = db.orders.map(orderStatus);
     const open = st.filter((x) => x.key !== 'done').length;
     const done = st.filter((x) => x.key === 'done').length;
     const withDiffs = st.filter((x) => x.diffs > 0).length;
     const nInv = db.orders.filter((o) => o.tipo === 'inventario').length;
-    $('#homeStats').innerHTML = `
+    $('#homeStats').innerHTML = !isStaff() ? `
+      <div class="kpi"><div class="l">Por contar</div><div class="v">${st.filter((x) => x.key === 'new').length}</div><div class="s">sin empezar</div></div>
+      <div class="kpi"><div class="l">En conteo</div><div class="v">${st.filter((x) => x.key === 'counting').length}</div><div class="s">empezados</div></div>
+      <div class="kpi ok"><div class="l">Finalizados</div><div class="v">${done}</div><div class="s">entregados al QF</div></div>` : `
       <div class="kpi"><div class="l">Documentos</div><div class="v">${db.orders.length}</div><div class="s">${db.orders.length - nInv} pedidos · ${nInv} inventarios</div></div>
       <div class="kpi"><div class="l">En revisión</div><div class="v">${open}</div><div class="s">abiertos</div></div>
       <div class="kpi ok"><div class="l">Cerrados</div><div class="v">${done}</div><div class="s">conteos terminados</div></div>
-      <div class="kpi ${withDiffs ? 'bad' : ''}"><div class="l">Con diferencias</div><div class="v">${withDiffs}</div><div class="s">de ${done} cerrados</div></div>`;
+      <div class="kpi ${withDiffs ? 'bad' : ''}"><div class="l">Por verificar</div><div class="v">${db.orders.filter((o) => o.finishedAt && !o.verifiedAt && orderStatus(o).diffs).length}</div><div class="s">${withDiffs} con desviaciones</div></div>`;
 
     const list = $('#orderList');
     if (!db.orders.length) {
@@ -454,10 +463,11 @@
     $('#orderMeta').textContent = `${T(current).Doc}${current.sucursal ? ' · ' + current.sucursal : ''}${current.fechaSistema ? ' · existencias al ' + current.fechaSistema : ''} · ${current.items.length} productos`;
     $('#shareWhat').textContent = current.tipo === 'inventario' ? 'del sistema' : 'enviadas';
     const x = orderStatus(current);
-    $('#orderProgress').textContent = current.finishedAt ? `Cerrado ${fmtDate(current.finishedAt)}${current.contadoPor ? ' · contó ' + current.contadoPor : ''}`
+    $('#orderProgress').textContent = current.finishedAt ? `Finalizado ${fmtDate(current.finishedAt)}${current.contadoPor ? ' · contó ' + current.contadoPor : ''}${current.verifiedAt ? ' · aprobado por ' + (current.verifiedBy || 'QF') : isStaff() ? ' · por verificar' : ' · en revisión del QF'}`
       : x.counted ? `${x.counted} de ${current.items.length} productos contados` : 'Aún sin contar';
     $('#orderBar').style.width = (current.finishedAt ? 100 : current.items.length ? (x.counted / current.items.length) * 100 : 0) + '%';
-    $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? ' Revisar conteo' : x.counted ? ' Seguir contando' : ' ' + T(current).contar);
+    $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? (isStaff() ? ' Reabrir conteo' : ' Conteo finalizado') : x.counted ? ' Seguir contando' : ' ' + T(current).contar);
+    $('#btnShowResults').innerHTML = ic('chart') + (current.tipo === 'inventario' ? ' Reporte de desviaciones' : ' Ver diferencias');
     $('#shareInfo').textContent = '';
   }
 
@@ -636,16 +646,18 @@
   // =========================================================
   function startCount() {
     if (current.finishedAt) {
-      if (!isAdmin()) {
-        ask({ title: 'Este conteo ya fue terminado', html: '<p>Solo un administrador puede reabrirlo para corregir.</p>',
-          buttons: [{ label: 'Cerrar', value: '' }, { label: 'Ver diferencias', value: 'res', cls: 'primary' }] })
-          .then((r) => { if (r.value === 'res') renderResults(); });
+      if (!isStaff()) {
+        info('Conteo finalizado', 'Este conteo ya fue entregado. Lo revisa el QF; si hay que recontar algo, te lo indicará.');
+        return;
+      }
+      if (current.verifiedAt && !isAdmin()) {
+        info('Inventario aprobado', `Fue aprobado por ${esc(current.verifiedBy || 'el QF')}. Solo un administrador puede reabrirlo.`).then(() => renderResults());
         return;
       }
       ask({ title: 'Este conteo ya fue terminado', html: '<p>¿Quieres reabrirlo para corregir? Quedará registrado que se reabrió.</p>',
         buttons: [{ label: 'Ver diferencias', value: 'res' }, { label: 'Reabrir conteo', value: 'open', cls: 'primary' }] })
         .then((r) => {
-          if (r.value === 'open') { current.finishedAt = null; current.reopened = (current.reopened || 0) + 1; save(); startCount(); }
+          if (r.value === 'open') { current.finishedAt = null; current.verifiedAt = null; current.reopened = (current.reopened || 0) + 1; save(); startCount(); }
           else if (r.value === 'res') renderResults();
         });
       return;
@@ -789,7 +801,7 @@
   function renderExtras() {
     const box = $('#extrasBox');
     if (!current.extras.length) { box.innerHTML = ''; return; }
-    box.innerHTML = `<h3 class="section-title">${ic('alert')} Recibidos que no estaban en el pedido</h3>
+    box.innerHTML = `<h3 class="section-title">${ic('alert')} ${isStaff() ? (current.tipo === 'inventario' ? 'Encontrados que no figuran en el sistema' : 'Recibidos que no estaban en el pedido') : 'Agregados por ti'}</h3>
       <div class="card"><ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
         <span class="st">${ic('alert')}</span>
         <div class="info"><div class="name">${esc(x.producto)}</div>
@@ -879,16 +891,16 @@
     if (!matches.length) {
       beep(false);
       const t = T(current);
-      const r = await ask({ title: `Código no está en el ${t.doc}`,
+      const r = await ask({ title: isStaff() ? `Código no está en el ${t.doc}` : 'Producto que no está en la lista',
         html: `<p class="mono">${esc(raw)}</p>${cat ? `<p>Según el maestro es <b>${esc(cat.nombre)}</b> (material <span class="mono">${esc(cat.sku)}</span>).</p>` : ''}
           ${scannedLote ? `<p>Lote leído: <b class="mono">${esc(scannedLote)}</b></p>` : ''}
-          <p>${current.tipo === 'inventario' ? 'Si el producto está en la sucursal, regístralo como sobrante.' : 'Si llegó en la cubeta, regístralo como sobrante.'}</p>
+          <p>${!isStaff() ? 'Si el producto está aquí, agrégalo para contarlo.' : current.tipo === 'inventario' ? 'Si el producto está en la sucursal, regístralo como sobrante.' : 'Si llegó en la cubeta, regístralo como sobrante.'}</p>
           <label>Nombre del producto<input name="producto" placeholder="Ej: Ibuprofeno 400mg" value="${esc(cat ? cat.nombre : '')}"></label>`,
-        buttons: [{ label: 'Ignorar', value: '' }, { label: 'Registrar sobrante', value: 'ok', cls: 'primary' }] });
+        buttons: [{ label: 'Ignorar', value: '' }, { label: isStaff() ? 'Registrar sobrante' : 'Agregar y contar', value: 'ok', cls: 'primary' }] });
       if (r.value === 'ok') {
         addExtra({ codigo: cat && cat.ean ? cat.ean : (gs1 ? gs1.gtin : raw), sku: cat ? cat.sku : '', producto: r.fields.producto.trim() || 'Producto sin nombre (' + raw + ')',
           lote: scannedLote, motivo: t.extra }, amount);
-        flash(`${ic('alert')}<span>Registrado como sobrante</span>`, 'warn');
+        flash(isStaff() ? `${ic('alert')}<span>Registrado como sobrante</span>` : `${ic('check')}<span>Agregado a la lista</span>`, isStaff() ? 'warn' : 'ok');
       }
       return;
     }
@@ -898,9 +910,11 @@
       // El código trae lote (DataMatrix GS1): verificamos contra el pedido.
       target = matches.find((i) => normLote(i.lote) === normLote(scannedLote));
       if (!target) {
-        beep(false);
         const expected = matches.map((i) => i.lote || 'sin lote').join(', ');
         addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: scannedLote, motivo: 'Lote distinto al enviado' }, amount);
+        // El auxiliar no recibe aviso de error: solo confirma lo registrado.
+        if (!isStaff()) { beep(true); flash(`${ic('check')}<span>${esc(matches[0].producto)} · lote ${esc(scannedLote)} — registrado</span>`, 'ok'); return; }
+        beep(false);
         flash(`${ic('alert')}<span><b>Lote incorrecto</b> · ${esc(matches[0].producto)}<br>Leído: <b class="mono">${esc(scannedLote)}</b> · En el pedido: <b class="mono">${esc(expected)}</b></span>`, 'err');
         return;
       }
@@ -918,6 +932,7 @@
         if (t) target = t;
         else {
           addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: r.fields.otro.trim(), motivo: 'Lote distinto al enviado' }, amount);
+          if (!isStaff()) { beep(true); flash(`${ic('check')}<span>Lote ${esc(r.fields.otro.trim())} — registrado</span>`, 'ok'); return; }
           beep(false);
           flash(`${ic('alert')}<span>El lote no corresponde al pedido. Quedó registrado como diferencia.</span>`, 'err');
           return;
@@ -1014,13 +1029,21 @@
       const r = await ask({ title: '¿Terminaste de contar?',
         html: `<p>${pending ? `Hay <b>${pending}</b> productos sin contar; se tomarán como <b>${T(current).cero}</b>.` : 'Todos los productos tienen conteo.'}</p>
           <label>Contado por<input name="por" placeholder="Nombre de quien contó" value="${esc(me ? me.nombre : lastPerson())}" ${me ? 'readonly' : ''}></label>
-          <p class="small muted">Al ver las diferencias el conteo queda cerrado.</p>`,
-        buttons: [{ label: 'Seguir contando', value: '' }, { label: 'Sí, ver diferencias', value: 'ok', cls: 'primary' }] });
+          <p class="small muted">${isStaff() ? 'Al ver las diferencias el conteo queda cerrado.' : 'Al finalizar ya no podrás cambiar las cantidades. El QF revisará el conteo.'}</p>`,
+        buttons: [{ label: 'Seguir contando', value: '' }, { label: isStaff() ? 'Sí, ver diferencias' : 'Sí, finalizar', value: 'ok', cls: 'primary' }] });
       if (r.value !== 'ok') return;
       current.finishedAt = Date.now();
       current.contadoPor = (r.fields.por || '').trim();
       try { localStorage.setItem('revision-responsable', current.contadoPor); } catch (e) { /* sin almacenamiento */ }
       save();
+    }
+    if (!isStaff()) {
+      // El auxiliar solo recibe la confirmación; las desviaciones las ve el QF.
+      const n = current.items.filter((i) => qty(i) > 0).length + current.extras.length;
+      await ask({ title: 'Conteo finalizado', html: `<div class="done-ok">${ic('check')}</div>
+        <p class="center">Quedó registrado tu conteo de <b>${n.toLocaleString('es')}</b> productos.<br>El QF revisará las desviaciones.</p>`,
+        buttons: [{ label: 'Volver al inicio', value: 'ok', cls: 'primary' }] });
+      return renderHome();
     }
     renderResults();
   }
@@ -1030,72 +1053,155 @@
   }
   const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 
+  // Costo unitario: el del pedido o, si no tiene, el del maestro / lista de precios.
+  function priceFor(sku, ean) {
+    const p = (sku && catalogIndex().sku.get(normCode(sku))) || (ean && catalogIndex().ean.get(normCode(ean)));
+    return p && p.precio ? p.precio : 0;
+  }
   function computeResults(o) {
     const t = T(o);
-    const rows = o.items.map((i) => {
-      const contado = o.counts[i.id] || 0;
-      const dif = contado - i.cantidad;
-      let estado = 'OK';
-      if (dif < 0) estado = contado === 0 ? t.noLlego : 'Faltante';
-      else if (dif > 0) estado = 'Sobrante';
-      return { id: i.id, codigo: i.codigo, sku: i.sku || '', categoria: i.categoria || '', producto: i.producto, lote: i.lote, precio: i.precio, contado, esperado: i.cantidad, dif, estado };
-    });
+    const rec = o.recount || {};
+    const mk = (base, contadoAux, esperado, estadoExtra) => {
+      const r = rec[base.id];
+      const contado = r ?? contadoAux;
+      const dif = contado - esperado;
+      let estado = estadoExtra || 'OK';
+      if (!estadoExtra) {
+        if (dif < 0) estado = contado === 0 ? t.noLlego : 'Faltante';
+        else if (dif > 0) estado = 'Sobrante';
+      }
+      const precio = base.precio || priceFor(base.sku, base.codigo);
+      return { ...base, contadoAux, recuento: r ?? null, contado, esperado, dif, estado, precio, valor: +(dif * precio).toFixed(2) };
+    };
+    const rows = o.items.map((i) => mk({ id: i.id, codigo: i.codigo, sku: i.sku || '', categoria: i.categoria || '', producto: i.producto, lote: i.lote, precio: i.precio },
+      o.counts[i.id] || 0, i.cantidad));
     for (const x of o.extras) {
-      rows.push({ id: x.id, codigo: x.codigo, sku: x.sku || '', categoria: '', producto: x.producto, lote: x.lote, precio: 0, contado: x.cantidad, esperado: 0, dif: x.cantidad,
-        estado: x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : t.extra });
+      rows.push(mk({ id: x.id, codigo: x.codigo, sku: x.sku || '', categoria: '', producto: x.producto, lote: x.lote, precio: 0 },
+        x.cantidad, 0, x.motivo === 'Lote distinto al enviado' ? 'Lote distinto' : t.extra));
     }
     return rows;
   }
 
-  function renderResults() {
-    show('results', current.nombre);
-    const rows = computeResults(current);
+  // Clasificación ABC de las desviaciones: A = 80 % del valor, B = siguiente 15 %, C = resto.
+  // Sin costos, se ordena por unidades de diferencia.
+  function classifyABC(rows) {
     const diffs = rows.filter((r) => r.dif !== 0);
+    const byValue = diffs.some((r) => r.precio > 0);
+    const key = (r) => (byValue ? Math.abs(r.valor) : Math.abs(r.dif));
+    diffs.sort((a, b) => key(b) - key(a));
+    const total = diffs.reduce((s, r) => s + key(r), 0) || 1;
+    let acc = 0;
+    for (const r of diffs) {
+      const before = acc / total;
+      r.abc = before < 0.8 ? 'A' : before < 0.95 ? 'B' : 'C';
+      acc += key(r);
+    }
+    rows.forEach((r) => { if (r.dif === 0) r.abc = ''; });
+    return { byValue, order: diffs };
+  }
+
+  function renderResults() {
+    if (!isStaff()) return renderHome();
+    show('results', current.nombre);
+    $('#abcFilter').value = '';
+    renderSummary();
+    renderResultsTable();
+  }
+
+  function renderSummary() {
+    const rows = computeResults(current);
+    const { byValue, order } = classifyABC(rows);
+    const t = T(current);
     const falt = rows.filter((r) => r.dif < 0), sobr = rows.filter((r) => r.dif > 0);
     const uFalt = -falt.reduce((s, r) => s + r.dif, 0), uSobr = sobr.reduce((s, r) => s + r.dif, 0);
-    const vFalt = -falt.reduce((s, r) => s + r.dif * r.precio, 0);
-    const ok = rows.length - diffs.length;
-
+    const vFalt = -falt.reduce((s, r) => s + r.valor, 0), vSobr = sobr.reduce((s, r) => s + r.valor, 0);
+    const ok = rows.length - order.length;
     const pct = rows.length ? Math.round((ok / rows.length) * 100) : 0;
+    const nA = order.filter((r) => r.abc === 'A'), nB = order.filter((r) => r.abc === 'B'), nC = order.filter((r) => r.abc === 'C');
+    const verA = nA.filter((r) => r.recuento !== null).length, verAll = order.filter((r) => r.recuento !== null).length;
+    const vPct = order.length ? Math.round((verAll / order.length) * 100) : 100;
     const dur = current.startedAt && current.finishedAt ? fmtDur(current.finishedAt - current.startedAt) : '—';
+    const money = (v) => (Math.abs(v) >= 1e6 ? '$ ' + (v / 1e6).toLocaleString('es', { maximumFractionDigits: 1 }) + ' M' : '$ ' + Math.round(v).toLocaleString('es'));
+    const prod = (n) => `${n.toLocaleString('es')} ${n === 1 ? 'producto' : 'productos'}`;
     $('#summary').innerHTML = `
       <div class="page-head">
         <div>
-          <span class="kicker">${T(current).Doc} · ${esc(current.sucursal || 'Sucursal')}${current.fechaSistema ? ' · existencias al ' + esc(current.fechaSistema) : ''} · Cerrado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
-          <h2 class="page-title">Diferencias · ${esc(current.nombre)}</h2>
+          <span class="kicker">${t.Doc} · ${esc(current.sucursal || 'Sucursal')}${current.fechaSistema ? ' · existencias al ' + esc(current.fechaSistema) : ''} · finalizado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''} · ${dur}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
+          <h2 class="page-title">Reporte de desviaciones</h2>
         </div>
+        ${current.verifiedAt ? `<span class="pill ok big-pill">${ic('check')} Aprobado por ${esc(current.verifiedBy || 'QF')} · ${fmtDate(current.verifiedAt)}</span>` : ''}
       </div>
+      ${byValue || !order.length ? '' : `<div class="load-status warn" style="margin-bottom:14px">${ic('alert')}<span>Sin costos cargados: el orden ABC se calcula por <b>unidades</b> de diferencia. Para ordenarlo por valor, carga la lista de precios en Menú → Maestro de productos.</span></div>`}
       <div class="kpis five">
-        <div class="kpi ${diffs.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok.toLocaleString('es')} de ${rows.length.toLocaleString('es')} líneas correctas</div><div class="meter"><span style="width:${pct}%"></span></div></div>
-        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${uFalt.toLocaleString('es')}</div><div class="s">unid. · ${falt.length} ${falt.length === 1 ? 'producto' : 'productos'}</div></div>
-        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${uSobr.toLocaleString('es')}</div><div class="s">unid. · ${sobr.length} ${sobr.length === 1 ? 'producto' : 'productos'}</div></div>
-        ${current.tipo === 'inventario'
-          ? `<div class="kpi"><div class="l">Unidades</div><div class="v">${rows.reduce((s, r) => s + r.contado, 0).toLocaleString('es')}</div><div class="s">contadas de ${rows.reduce((s, r) => s + r.esperado, 0).toLocaleString('es')} en sistema</div></div>`
-          : `<div class="kpi"><div class="l">Valor faltante</div><div class="v">$ ${fmtMoney(vFalt)}</div><div class="s">a precio del pedido</div></div>`}
-        <div class="kpi"><div class="l">Tiempo de conteo</div><div class="v">${dur}</div><div class="s">primer registro → cierre</div></div>
+        <div class="kpi ${order.length ? '' : 'ok'}"><div class="l">Exactitud</div><div class="v">${pct}%</div><div class="s">${ok.toLocaleString('es')} de ${rows.length.toLocaleString('es')} líneas sin desviación</div><div class="meter"><span style="width:${pct}%"></span></div></div>
+        <div class="kpi ${uFalt ? 'bad' : ''}"><div class="l">Faltan</div><div class="v">${byValue ? money(vFalt) : uFalt.toLocaleString('es')}</div><div class="s">${uFalt.toLocaleString('es')} unid. · ${prod(falt.length)}</div></div>
+        <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${byValue ? money(vSobr) : uSobr.toLocaleString('es')}</div><div class="s">${uSobr.toLocaleString('es')} unid. · ${prod(sobr.length)}</div></div>
+        <div class="kpi"><div class="l">Desviaciones ABC</div><div class="v abc-v"><span class="abc A">A ${nA.length}</span><span class="abc B">B ${nB.length}</span><span class="abc C">C ${nC.length}</span></div><div class="s">${byValue ? 'por valor' : 'por unidades'} · A = 80 % del total</div></div>
+        <div class="kpi ${vPct === 100 ? 'ok' : ''}"><div class="l">Verificación QF</div><div class="v">${verAll} / ${order.length}</div><div class="s">Clase A: ${verA} de ${nA.length} recontadas</div><div class="meter"><span style="width:${vPct}%"></span></div></div>
       </div>`;
-    renderResultsTable(rows);
+    $('#btnApprove').hidden = !!current.verifiedAt;
   }
 
-  function renderResultsTable(rows) {
+  function renderResultsTable() {
+    const rows = computeResults(current);
+    const { byValue } = classifyABC(rows);
     const only = $('#onlyDiffs').checked;
-    const list = (only ? rows.filter((r) => r.dif !== 0 || evOf(current, r.id)) : rows)
-      .sort((a, b) => (a.dif === 0) - (b.dif === 0) || a.producto.localeCompare(b.producto, 'es'));
+    const cls = $('#abcFilter').value;
+    const rank = { A: 0, B: 1, C: 2, '': 3 };
+    const key = (r) => (byValue ? Math.abs(r.valor) : Math.abs(r.dif));
+    const list = rows.filter((r) => (!only || r.dif !== 0 || r.recuento !== null || evOf(current, r.id)) && (!cls || r.abc === cls))
+      .sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a) || a.producto.localeCompare(b.producto, 'es'));
     if (!list.length) {
-      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} Todo correcto: ${T(current).ok}.</div>`;
+      $('#resultsTable').innerHTML = `<div class="card good-msg">${ic('check')} ${cls ? 'No hay desviaciones clase ' + cls + '.' : 'Todo correcto: ' + T(current).ok + '.'}</div>`;
       return;
     }
+    const t = T(current);
+    const locked = !!current.verifiedAt;
+    const shown = list.slice(0, 400);
     $('#resultsTable').innerHTML = `<div class="card"><div class="table-wrap"><table class="results">
-      <thead><tr><th>Producto</th><th class="num">${T(current).llego}</th><th class="num">${T(current).debia}</th><th class="num">Dif.</th><th>Estado</th></tr></thead>
-      <tbody>${list.map((r) => `<tr data-rid="${r.id}">
-        <td><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>${evHtml(r.id)}</td>
-        <td class="num">${r.contado} und</td>
-        <td class="num">${r.esperado} und</td>
-        <td class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif}</td>
-        <td><div class="state-cell"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${evButton(current, r.id, 'data-rev')}</div></td>
-      </tr>`).join('')}</tbody></table></div></div>`;
+      <thead><tr><th>Clase</th><th>Producto</th><th class="num">${t.debia}</th><th class="num">Contado</th><th class="num">Recuento QF</th><th class="num">Dif.</th><th class="num">Valor</th><th>Estado</th></tr></thead>
+      <tbody>${shown.map((r) => `<tr data-rid="${r.id}" class="${r.recuento !== null ? 'verified' : ''}">
+        <td data-label="Clase">${r.abc ? `<span class="abc ${r.abc}">${r.abc}</span>` : ''}</td>
+        <td data-label="Producto" class="c-prod"><b>${esc(r.producto)}</b><div class="sub">${[r.sku && `<span class="mono">${esc(r.sku)}</span>`, r.codigo && `<span class="mono">${esc(r.codigo)}</span>`, r.lote && `Lote <span class="mono">${esc(r.lote)}</span>`, r.categoria && esc(r.categoria)].filter(Boolean).join(' · ')}</div>${evHtml(r.id)}</td>
+        <td data-label="${t.debia}" class="num">${r.esperado.toLocaleString('es')}</td>
+        <td data-label="Contado" class="num">${r.contadoAux.toLocaleString('es')}</td>
+        <td data-label="Recuento QF" class="num">${locked ? (r.recuento ?? '—') : `<input class="rec" type="number" inputmode="numeric" min="0" value="${r.recuento ?? ''}" placeholder="—" aria-label="Recuento del QF">`}</td>
+        <td data-label="Dif." class="num ${r.dif < 0 ? 'd-neg' : r.dif > 0 ? 'd-pos' : ''}">${r.dif > 0 ? '+' : ''}${r.dif.toLocaleString('es')}</td>
+        <td data-label="Valor" class="num">${r.precio ? '$ ' + Math.round(r.valor).toLocaleString('es') : '<span class="muted">—</span>'}</td>
+        <td data-label="Estado"><div class="state-cell"><span class="pill ${r.dif === 0 ? 'ok' : r.dif < 0 ? 'bad' : 'warn'}">${esc(r.estado)}</span>${r.recuento !== null ? `<span class="pill ok">${ic('check')} verificado</span>` : ''}${evButton(current, r.id, 'data-rev')}</div></td>
+      </tr>`).join('')}</tbody></table></div>
+      ${list.length > shown.length ? `<p class="small muted" style="padding:10px 14px;margin:0">Mostrando ${shown.length} de ${list.length.toLocaleString('es')}. Filtra por clase o exporta a Excel para ver todo.</p>` : ''}</div>`;
     fillPhotos($('#resultsTable'));
   }
+
+  // Recuento del QF: reemplaza la cantidad del auxiliar en el cálculo final.
+  $('#resultsTable').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('rec') || current.verifiedAt) return;
+    const id = e.target.closest('tr').dataset.rid;
+    current.recount = current.recount || {};
+    const v = e.target.value.trim();
+    if (v === '') delete current.recount[id]; else current.recount[id] = Math.max(0, Math.round(parseNum(v)));
+    current.recountBy = me ? me.nombre : '';
+    save();
+    renderSummary();
+    renderResultsTable();
+  });
+  $('#abcFilter').onchange = () => renderResultsTable();
+  $('#btnApprove').onclick = async () => {
+    const rows = computeResults(current);
+    const { order } = classifyABC(rows);
+    const pendA = order.filter((r) => r.abc === 'A' && r.recuento === null).length;
+    const r = await ask({ title: `Aprobar ${T(current).doc}`,
+      html: `<p>${pendA ? `Quedan <b>${pendA}</b> desviaciones clase A sin recontar.` : 'Todas las desviaciones clase A están recontadas.'}</p>
+        <p>Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>`,
+      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar', value: 'ok', cls: 'primary' }] });
+    if (r.value !== 'ok') return;
+    current.verifiedAt = Date.now();
+    current.verifiedBy = me.nombre;
+    save();
+    renderSummary();
+    renderResultsTable();
+  };
 
   function evHtml(id) {
     const ev = evOf(current, id);
@@ -1109,24 +1215,28 @@
     const b = e.target.closest('[data-rev]');
     if (!b) return;
     const r = computeResults(current).find((x) => x.id === b.closest('tr').dataset.rid);
-    if (r) openEvidence(r.id, r.producto + (r.lote ? ' · ' + r.lote : ''), () => renderResultsTable(computeResults(current)));
+    if (r) openEvidence(r.id, r.producto + (r.lote ? ' · ' + r.lote : ''), () => renderResultsTable());
   });
 
-  $('#onlyDiffs').onchange = () => renderResultsTable(computeResults(current));
+  $('#onlyDiffs').onchange = () => renderResultsTable();
   $('#btnBackToCount').onclick = () => startCount();
   $('#btnPrint').onclick = () => window.print();
 
   function exportRows() {
     const inv = current.tipo === 'inventario';
     const t = T(current);
-    return computeResults(current).map((r) => {
+    const rows = computeResults(current);
+    const { byValue } = classifyABC(rows);
+    const rank = { A: 0, B: 1, C: 2, '': 3 };
+    const key = (r) => (byValue ? Math.abs(r.valor) : Math.abs(r.dif));
+    return rows.sort((a, b) => rank[a.abc] - rank[b.abc] || key(b) - key(a)).map((r) => {
       const ev = evOf(current, r.id);
       const base = inv
-        ? { 'Material': r.sku, 'Código de barras': r.codigo, 'Producto': r.producto, 'Categoría': r.categoria }
-        : { 'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote, 'Precio': r.precio };
-      return Object.assign(base, { [t.llego]: r.contado, [t.debia]: r.esperado, 'Diferencia': r.dif },
-        inv ? {} : { 'Valor diferencia': +(r.dif * r.precio).toFixed(2) },
-        { 'Estado': r.estado, 'Motivo': ev?.motivo || '', 'Nota': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 });
+        ? { 'Clase ABC': r.abc, 'Material': r.sku, 'Código de barras': r.codigo, 'Producto': r.producto, 'Categoría': r.categoria }
+        : { 'Clase ABC': r.abc, 'Código': r.codigo, 'Producto': r.producto, 'Lote': r.lote };
+      return Object.assign(base, { [t.debia]: r.esperado, 'Contado auxiliar': r.contadoAux, 'Recuento QF': r.recuento ?? '', 'Cantidad final': r.contado,
+        'Diferencia': r.dif, 'Costo unitario': r.precio || '', 'Valor diferencia': r.precio ? r.valor : '', 'Estado': r.estado,
+        'Motivo': ev?.motivo || '', 'Nota': ev?.nota || '', 'Fotos': ev?.fotos.length || 0 });
     });
   }
   $('#btnExportXlsx').onclick = () => {
@@ -1135,7 +1245,7 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
     const info = [[T(current).Doc, current.nombre], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Existencias al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
-      ['Veces reabierto', current.reopened || 0]];
+      ['Veces reabierto', current.reopened || 0], ['Aprobado por', current.verifiedBy || ''], ['Aprobado el', current.verifiedAt ? fmtDate(current.verifiedAt) : '']];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');
     XLSX.writeFile(wb, safeName(current.nombre) + '-diferencias.xlsx');
   };
@@ -1147,17 +1257,21 @@
     download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), safeName(current.nombre) + '-diferencias.csv');
   };
   $('#btnShareResults').onclick = async () => {
-    const rows = computeResults(current).filter((r) => r.dif !== 0 || evOf(current, r.id));
+    const all = computeResults(current);
+    const { byValue } = classifyABC(all);
+    const rows = all.filter((r) => r.dif !== 0 || evOf(current, r.id))
+      .sort((a, b) => ({ A: 0, B: 1, C: 2, '': 3 }[a.abc] - { A: 0, B: 1, C: 2, '': 3 }[b.abc]) || (byValue ? Math.abs(b.valor) - Math.abs(a.valor) : Math.abs(b.dif) - Math.abs(a.dif)));
     const lines = rows.map((r) => {
       const ev = evOf(current, r.id);
       const dif = r.dif === 0 ? 'correcto' : r.dif > 0 ? 'sobran ' + r.dif : 'faltan ' + -r.dif;
-      return `• ${r.producto}${r.sku ? ' [' + r.sku + ']' : ''}${r.lote ? ' (L ' + r.lote + ')' : ''}: ${T(current).llego.toLowerCase()} ${r.contado} und | ${T(current).debia.toLowerCase()} ${r.esperado} und → ${dif}` +
+      return `• ${r.abc ? '[' + r.abc + '] ' : ''}${r.producto}${r.sku ? ' [' + r.sku + ']' : ''}${r.lote ? ' (L ' + r.lote + ')' : ''}: ${T(current).llego.toLowerCase()} ${r.contado} und | ${T(current).debia.toLowerCase()} ${r.esperado} und → ${dif}` +
         `${r.estado === 'Lote distinto' ? ' [lote distinto]' : ''}${ev && ev.motivo ? ' — ' + ev.motivo : ''}${ev && ev.nota ? ': ' + ev.nota : ''}`;
     });
     const nFotos = rows.reduce((s, r) => s + (evOf(current, r.id)?.fotos.length || 0), 0);
     const text = `${current.tipo === 'inventario' ? 'Inventario' : 'Revisión'} ${current.nombre}${current.sucursal ? ' - ' + current.sucursal : ''}\n` +
       (current.contadoPor ? `Contó: ${current.contadoPor}\n` : '') +
-      (lines.length ? `Diferencias (${lines.length}):\n${lines.join('\n')}` : 'Todo correcto, sin diferencias.');
+      (current.verifiedBy ? `Aprobado por: ${current.verifiedBy}\n` : '') +
+      (lines.length ? `Desviaciones (${lines.length}, orden ABC):\n${lines.slice(0, 80).join('\n')}${lines.length > 80 ? `\n… y ${lines.length - 80} más (ver Excel)` : ''}` : 'Todo correcto, sin diferencias.');
     // Adjunta las fotos cuando el equipo lo permite (WhatsApp, correo, etc.).
     const files = [];
     for (const r of rows) {
@@ -1187,6 +1301,7 @@
   const USERS_KEY = 'revision-usuarios-v1';
   const SESSION_KEY = 'revision-sesion-v1';
   let users = loadJSON(USERS_KEY, []);
+  users.forEach((u) => { if (u.rol === 'sucursal') u.rol = 'auxiliar'; });
   function loadJSON(key, def) {
     try { const v = JSON.parse(localStorage.getItem(key)); return v ?? def; } catch (e) { return def; }
   }
@@ -1198,17 +1313,18 @@
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 120000, hash: 'SHA-256' }, key, 256);
     return toB64(bits);
   }
-  async function makeUser({ nombre, usuario, pass, rol = 'sucursal', sucursal = '' }) {
+  async function makeUser({ nombre, usuario, pass, rol = 'auxiliar', sucursal = '' }) {
     const salt = uid() + uid();
     return { id: uid(), nombre: nombre.trim(), usuario: usuario.trim().toLowerCase(), rol, sucursal: sucursal.trim(), salt, hash: await hashPass(pass, salt), creado: Date.now() };
   }
   const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-  const rolName = (r) => (r === 'admin' ? 'Administrador' : 'Sucursal');
+  const rolName = (r) => ({ admin: 'Administrador', qf: 'QF', auxiliar: 'Auxiliar', sucursal: 'Auxiliar' }[r] || r);
 
   function setSession(u) {
     me = u;
     try { if (u) localStorage.setItem(SESSION_KEY, u.id); else localStorage.removeItem(SESSION_KEY); } catch (e) { /* sin almacenamiento */ }
-    document.body.classList.toggle('role-sucursal', !!u && u.rol !== 'admin');
+    document.body.classList.remove('role-admin', 'role-qf', 'role-auxiliar');
+    if (u) document.body.classList.add('role-' + role());
     const b = $('#btnUser');
     b.hidden = !u;
     if (u) b.innerHTML = `<span class="avatar">${esc(initials(u.nombre))}</span><span class="uname">${esc(u.nombre)}</span>`;
@@ -1229,7 +1345,7 @@
     $('#loginError').hidden = true;
     $('#loginForm').reset();
     $('#loginDemo').hidden = !window.REVISION_DEMO;
-    $('#loginDemo').innerHTML = 'Demo: administrador <b>admin</b> / <b>admin123</b> · sucursal <b>renca</b> / <b>1234</b>';
+    $('#loginDemo').innerHTML = 'Demo: administrador <b>admin</b> / <b>admin123</b> · QF <b>qf</b> / <b>qf123</b> · auxiliar <b>renca</b> / <b>1234</b>';
     setTimeout(() => (setup ? $('#setupNombre') : $('#loginUser')).focus(), 50);
   }
   function loginError(msg) { const e = $('#loginError'); e.textContent = msg; e.hidden = false; }
@@ -1338,7 +1454,10 @@
     const r = await ask({ title: u ? 'Editar usuario' : 'Nuevo usuario',
       html: `<label>Nombre completo<input name="nombre" value="${esc(u ? u.nombre : '')}"></label>
         <label>Usuario (para entrar)<input name="usuario" value="${esc(u ? u.usuario : '')}" autocapitalize="none" spellcheck="false"></label>
-        <label>Rol<select name="rol"><option value="sucursal" ${u && u.rol === 'sucursal' ? 'selected' : ''}>Sucursal: solo cuenta</option><option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: todo</option></select></label>
+        <label>Rol<select name="rol">
+          <option value="auxiliar" ${!u || u.rol === 'auxiliar' ? 'selected' : ''}>Auxiliar: solo digita cantidades</option>
+          <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: revisa y verifica las desviaciones</option>
+          <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: todo</option></select></label>
         <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
         ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
@@ -1421,6 +1540,7 @@
     ['sku', /^material$|^sku|cod.*material|material.*cod|^codigo$|^cod\.?$|^articulo$/],
     ['nombre', /texto|descrip|nombre|producto/],
     ['unidad', /unidad|^um$|medida/],
+    ['precio', /precio|costo|valor|^pmp$|^cpp$/],
     ['grupo', /nivel|grupo|categ|familia|linea/],
   ];
   function parseCatalogRows(rows) {
@@ -1440,7 +1560,8 @@
       if (!nombre) continue;
       const ean = map.ean !== undefined ? String(r[map.ean] ?? '').replace(/\.0+$/, '').trim() : '';
       items.push({ sku: map.sku !== undefined ? String(r[map.sku] ?? '').trim() : '', nombre, ean: /^\d{6,14}$/.test(ean) ? ean : '',
-        unidad: map.unidad !== undefined ? String(r[map.unidad] ?? '').trim() : '', grupo: map.grupo !== undefined ? String(r[map.grupo] ?? '').trim() : '' });
+        unidad: map.unidad !== undefined ? String(r[map.unidad] ?? '').trim() : '', grupo: map.grupo !== undefined ? String(r[map.grupo] ?? '').trim() : '',
+        precio: map.precio !== undefined ? parseNum(r[map.precio]) : 0 });
     }
     return items;
   }
@@ -1453,6 +1574,7 @@
       <div class="kpi"><div class="l">Productos</div><div class="v">${items.length.toLocaleString('es')}</div><div class="s">en el maestro</div></div>
       <div class="kpi ok"><div class="l">Con código de barras</div><div class="v">${items.filter((p) => p.ean).length.toLocaleString('es')}</div><div class="s">se pueden escanear</div></div>
       <div class="kpi ${items.length && items.some((p) => !p.ean) ? 'warn' : ''}"><div class="l">Sin código de barras</div><div class="v">${items.filter((p) => !p.ean).length.toLocaleString('es')}</div><div class="s">se buscan por nombre</div></div>
+      <div class="kpi ${items.some((p) => p.precio) ? 'ok' : 'warn'}"><div class="l">Con costo</div><div class="v">${items.filter((p) => p.precio).length.toLocaleString('es')}</div><div class="s">para el orden ABC por valor</div></div>
       <div class="kpi"><div class="l">Actualizado</div><div class="v" style="font-size:18px">${catalog.actualizado ? fmtDate(catalog.actualizado) : '—'}</div><div class="s">${esc(catalog.archivo || 'sin cargar')}</div></div>`;
     renderCatalogList();
   }
@@ -1462,8 +1584,8 @@
     const q = normText($('#catalogSearch').value);
     const found = q ? items.filter((p) => normText(`${p.nombre} ${p.sku} ${p.ean}`).includes(q)) : items;
     $('#catalogList').innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Material</th><th>Producto</th><th>Código de barras</th><th>Unidad</th></tr></thead>
-      <tbody>${found.slice(0, 150).map((p) => `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.nombre)}</td><td class="mono">${esc(p.ean) || '<span class="muted">—</span>'}</td><td>${esc(p.unidad)}</td></tr>`).join('')}</tbody></table></div>
+      <thead><tr><th>Material</th><th>Producto</th><th>Código de barras</th><th>Unidad</th><th class="num">Costo</th></tr></thead>
+      <tbody>${found.slice(0, 150).map((p) => `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.nombre)}</td><td class="mono">${esc(p.ean) || '<span class="muted">—</span>'}</td><td>${esc(p.unidad)}</td><td class="num">${p.precio ? '$ ' + fmtMoney(p.precio) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody></table></div>
       <p class="small muted" style="padding:10px 14px;margin:0">${found.length > 150 ? `Mostrando 150 de ${found.length.toLocaleString('es')}. Usa el buscador para encontrar otros.` : `${found.length} productos`}</p>`;
   }
   $('#catalogSearch').oninput = () => renderCatalogList();
@@ -1485,6 +1607,50 @@
       st.innerHTML = `${ic('alert')}<span>${esc(err.message)}</span>`;
     }
   };
+  // Lista de precios/costos: Material (o código de barras) + Precio/Costo. Se agrega al maestro.
+  $('#filePrices').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const st = $('#catalogStatus');
+    try {
+      const rows = await readSheetRows(f);
+      let hIdx = -1, cCode = -1, cEan = -1, cPrice = -1, cName = -1;
+      for (let i = 0; i < Math.min(rows.length, 15) && hIdx < 0; i++) {
+        rows[i].forEach((h, k) => {
+          const n = normText(h);
+          if (cPrice < 0 && /precio|costo|valor|^pmp$|^cpp$/.test(n)) cPrice = k;
+          else if (cEan < 0 && /ean|upc|barra|gtin/.test(n)) cEan = k;
+          else if (cCode < 0 && /material|cod|sku|articulo/.test(n)) cCode = k;
+          else if (cName < 0 && /texto|descrip|nombre|producto/.test(n)) cName = k;
+        });
+        if (cPrice >= 0 && (cCode >= 0 || cEan >= 0)) hIdx = i; else { cCode = cEan = cPrice = cName = -1; }
+      }
+      if (hIdx < 0) throw new Error('No encontré las columnas. La lista debe tener Material (o código de barras) y Precio o Costo.');
+      const items = (catalog.items || []).slice();
+      const bySku = new Map(items.map((p) => [normCode(p.sku), p]));
+      const byEan = new Map(items.filter((p) => p.ean).map((p) => [normCode(p.ean), p]));
+      let upd = 0, added = 0;
+      for (const r of rows.slice(hIdx + 1)) {
+        const precio = parseNum(r[cPrice]);
+        if (!precio) continue;
+        const sku = cCode >= 0 ? String(r[cCode] ?? '').trim() : '';
+        const ean = cEan >= 0 ? String(r[cEan] ?? '').trim() : '';
+        let p = (sku && bySku.get(normCode(sku))) || (ean && byEan.get(normCode(ean)));
+        if (p) { p.precio = precio; upd++; }
+        else if (sku || ean) { p = { sku, ean, nombre: cName >= 0 ? String(r[cName] ?? '').trim() : '', unidad: '', grupo: '', precio }; items.push(p); added++; }
+      }
+      if (!upd && !added) throw new Error('No encontré precios válidos en el archivo.');
+      setCatalog({ ...catalog, items, actualizado: Date.now(), precios: f.name });
+      renderCatalog();
+      st.className = 'load-status ok'; st.hidden = false;
+      st.innerHTML = `${ic('check')}<span>Costos cargados: ${upd.toLocaleString('es')} productos actualizados${added ? `, ${added} agregados` : ''}.</span>`;
+    } catch (err) {
+      st.className = 'load-status err'; st.hidden = false;
+      st.innerHTML = `${ic('alert')}<span>${esc(err.message)}</span>`;
+    }
+  };
+
   async function readSheetRows(f) {
     if (/\.(csv|txt)$/i.test(f.name)) return parseDelimited(await f.text());
     const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
@@ -1619,7 +1785,8 @@
     // Demo: usuarios de prueba para entrar sin configurar nada.
     if (window.REVISION_DEMO && !users.length) {
       users.push(await makeUser({ nombre: 'Administrador', usuario: 'admin', pass: 'admin123', rol: 'admin' }));
-      users.push(await makeUser({ nombre: 'Sucursal Renca', usuario: 'renca', pass: '1234', rol: 'sucursal', sucursal: 'CL0007 RENCA' }));
+      users.push(await makeUser({ nombre: 'QF Renca', usuario: 'qf', pass: 'qf123', rol: 'qf', sucursal: 'CL0007 RENCA' }));
+      users.push(await makeUser({ nombre: 'Auxiliar Renca', usuario: 'renca', pass: '1234', rol: 'auxiliar', sucursal: 'CL0007 RENCA' }));
       saveUsers();
     }
     if (window.REVISION_DEMO && !db.orders.length) createDemo();

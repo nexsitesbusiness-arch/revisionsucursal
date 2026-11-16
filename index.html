@@ -108,7 +108,7 @@
         <div><span class="kicker">Administración</span><h2 class="page-title">Usuarios</h2></div>
         <div class="actions"><button class="btn primary" id="btnNewUser"><svg class="ic"><use href="#i-plus"/></svg> Nuevo usuario</button></div>
       </div>
-      <p class="muted small">Los <b>administradores</b> cargan pedidos, inventarios y el maestro, y ven las cantidades. Los usuarios de <b>sucursal</b> solo cuentan y ven las diferencias al cerrar.</p>
+      <p class="muted small"><b>Administrador:</b> carga pedidos, inventarios, maestro y costos, y administra usuarios. <b>QF:</b> revisa el reporte de desviaciones (ABC), hace el recuento y aprueba. <b>Auxiliar:</b> solo digita cantidades, sin ver totales ni si coinciden.</p>
       <div class="card" id="usersList"></div>
       <p class="small muted">Los usuarios se guardan en este equipo. Para usarlos en otra tablet, usa <b>Exportar configuración</b> en el menú de usuario e impórtala allá.</p>
     </section>
@@ -118,11 +118,13 @@
       <div class="page-head">
         <div><span class="kicker">Administración</span><h2 class="page-title">Maestro de productos</h2></div>
         <div class="actions">
+          <label class="btn"><svg class="ic"><use href="#i-upload"/></svg> Subir costos (Excel)
+            <input type="file" id="filePrices" accept=".xlsx,.xls,.csv" hidden></label>
           <label class="btn primary"><svg class="ic"><use href="#i-upload"/></svg> Subir maestro (Excel)
             <input type="file" id="fileCatalog" accept=".xlsx,.xls,.csv" hidden></label>
         </div>
       </div>
-      <p class="muted small">El maestro relaciona el código de material con el código de barras (EAN). Con él, al escanear una caja la app sabe qué producto es, en pedidos y en inventarios.</p>
+      <p class="muted small">El maestro relaciona el código de material con el código de barras (EAN). Con él, al escanear una caja la app sabe qué producto es, en pedidos y en inventarios. Los <b>costos</b> (Excel con Material y Precio o Costo) permiten ordenar las desviaciones por valor (ABC).</p>
       <div id="catalogStatus" class="load-status" hidden></div>
       <div class="kpis" id="catalogStats"></div>
       <div class="search-row">
@@ -246,7 +248,7 @@
           <h2 class="page-title" id="orderTitle"></h2>
         </div>
         <div class="actions">
-          <button class="btn" id="btnShowResults"><svg class="ic"><use href="#i-chart"/></svg> Ver diferencias</button>
+          <button class="btn staff-only" id="btnShowResults"><svg class="ic"><use href="#i-chart"/></svg> Ver diferencias</button>
           <button class="btn primary" id="btnStartCount"><svg class="ic"><use href="#i-scan"/></svg> Contar pedido</button>
         </div>
       </div>
@@ -328,13 +330,19 @@
     <section id="view-results" class="view" hidden>
       <div id="summary"></div>
       <div class="toolbar">
-        <label class="inline small"><input type="checkbox" id="onlyDiffs" checked> Solo con diferencias</label>
+        <div class="actions">
+          <label class="inline small"><input type="checkbox" id="onlyDiffs" checked> Solo con desviaciones</label>
+          <select id="abcFilter" class="sel-sm" aria-label="Filtrar por clase ABC">
+            <option value="">Todas las clases</option><option value="A">Clase A</option><option value="B">Clase B</option><option value="C">Clase C</option>
+          </select>
+        </div>
         <div class="actions">
           <button class="btn" id="btnBackToCount"><svg class="ic"><use href="#i-arrow-left"/></svg> Volver al conteo</button>
           <button class="btn" id="btnPrint"><svg class="ic"><use href="#i-printer"/></svg> Imprimir</button>
           <button class="btn" id="btnExportCsv"><svg class="ic"><use href="#i-file"/></svg> CSV</button>
           <button class="btn" id="btnExportXlsx"><svg class="ic"><use href="#i-download"/></svg> Excel</button>
-          <button class="btn primary" id="btnShareResults"><svg class="ic"><use href="#i-send"/></svg> Compartir</button>
+          <button class="btn" id="btnShareResults"><svg class="ic"><use href="#i-send"/></svg> Compartir</button>
+          <button class="btn primary" id="btnApprove"><svg class="ic"><use href="#i-check"/></svg> Aprobar</button>
         </div>
       </div>
       <div id="resultsTable"></div>
