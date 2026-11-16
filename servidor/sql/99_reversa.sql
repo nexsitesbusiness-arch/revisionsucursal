@@ -1,0 +1,3 @@
+-- Reversa completa (borra todo). Solo usar si se quiere desinstalar y con respaldo previo.
+-- DROP TABLE bitacora; DROP TABLE evidencias; DROP TABLE documentos; DROP TABLE configuracion;
+-- DROP TABLE sesiones; DROP TABLE intentos_login; DROP TABLE usuarios; DROP USER 'revision_app'@'%';
