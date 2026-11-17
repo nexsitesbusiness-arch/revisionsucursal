@@ -2,9 +2,17 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 17-11-2026 · Tiempo del conteo con tramos y pausas; "reporte de inventario"
+
+- El reporte de la QF muestra el **tiempo del conteo**: inicio, fin, tiempo total, tiempo contando, cuántas **pausas** hubo y cuánto duró cada **tramo** (ej. 10 min, pausa, 4 min, pausa, 30 min), con una línea de tiempo.
+  - *Decisión:* es pausa cuando pasan más de **5 minutos** sin registrar nada (`PAUSA_MIN`, se puede ajustar).
+  - Va también al Excel (hoja "Tiempo del conteo") y a la bitácora ("Retomó el conteo tras una pausa").
+- Los textos dicen **"reporte de inventario"** de SPOS en vez de "reporte de existencias" (pedido de Bastian).
+- Las horas de los tramos se muestran en formato de 24 horas.
+
 ## 16-11-2026 · La QF carga el inventario desde SPOS
 
-- La **QF** crea el inventario subiendo el reporte de existencias en PDF que descarga de **SPOS**. Antes lo hacía solo el administrador.
+- La **QF** crea el inventario subiendo el reporte de inventario en PDF que descarga de **SPOS**. Antes lo hacía solo el administrador.
   - *Decisión de Bastian:* el inventario lo inicia la QF de la sucursal; el administrador queda para la configuración y los pedidos.
 - La QF solo puede cargar reportes de **su sucursal**: la app y el servidor lo validan comparando el código (ej. CL0007), sin importar mayúsculas ni espacios.
 - La QF puede **eliminar un inventario mal cargado** mientras nadie haya empezado a contar. El auxiliar nunca puede eliminar. Todo queda en la bitácora.
@@ -46,7 +54,7 @@ Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
 ## Inventarios, maestro y usuarios
 
-- Módulo de inventario a partir del reporte de existencias en PDF y del maestro de materiales en Excel.
+- Módulo de inventario a partir del reporte de inventario en PDF y del maestro de materiales en Excel.
 - Inicio de sesión con usuario y contraseña.
 
 ## Carga de pedidos y evidencia

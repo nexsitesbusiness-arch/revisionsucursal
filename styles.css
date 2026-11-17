@@ -447,3 +447,20 @@ table.log td.when { white-space: nowrap; }
 .privacy-doc { max-height: 60vh; overflow: auto; font-size: 14px; padding-right: 4px; }
 .privacy-doc h4 { margin: 14px 0 4px; font-size: 14px; }
 .privacy-doc ul { margin: 4px 0; padding-left: 18px; }
+
+/* Tiempo del conteo (tramos y pausas) */
+.tiempo { margin-bottom: 14px; display: grid; gap: 12px; }
+.tiempo-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+.tiempo-head .card-title { margin: 0; display: flex; align-items: center; gap: 8px; }
+.tiempo-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.tiempo-kpis div { background: var(--surface-2); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.tiempo-kpis span { display: block; font-size: 12px; color: var(--muted); }
+.tiempo-kpis b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.tiempo-kpis small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.timeline { position: relative; height: 14px; border-radius: 99px; background: repeating-linear-gradient(90deg, var(--rule) 0 6px, var(--surface-2) 6px 10px); overflow: hidden; }
+.timeline span { position: absolute; top: 0; bottom: 0; background: var(--primary); border-radius: 99px; }
+.tl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13.5px; }
+.tl-list li { white-space: nowrap; }
+.tl-list .tl-pausa { color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.tl-list .tl-pausa .ic { width: 14px; height: 14px; }
+@media (max-width: 700px) { .tiempo-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tl-list { display: grid; } }

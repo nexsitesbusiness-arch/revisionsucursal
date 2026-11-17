@@ -31,7 +31,7 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 - La primera vez la app pide crear el **administrador** (nombre, usuario y contraseña).
 - El administrador crea usuarios desde el menú de usuario → **Usuarios**, con tres roles:
   - **Administrador:** configura el sistema (usuarios, maestro y costos), carga los pedidos que se despachan a las sucursales y reabre conteos.
-  - **QF:** carga el inventario de su sucursal (reporte de existencias de SPOS en PDF), ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
+  - **QF:** carga el inventario de su sucursal (reporte de inventario de SPOS en PDF), ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
   - A cada QF y auxiliar se le asigna su **sucursal** (ej. `CL0007 RENCA`): solo ve y carga documentos de esa sucursal.
   - **Auxiliar:** solo digita cantidades. No ve cantidades del sistema, ni totales, ni si lo que digita coincide. Al finalizar recibe solo un "Conteo finalizado".
 - Las contraseñas nunca se guardan en texto (ver Seguridad).
@@ -39,7 +39,7 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
 ## Flujo de un inventario
 
-1. **QF:** descarga desde **SPOS** el reporte de existencias de su sucursal en PDF y lo sube en **Nuevo inventario**. La app lee la sucursal, la fecha y cada producto con su cantidad del sistema, y le agrega el código de barras desde el maestro (que carga el administrador). Si el reporte es de otra sucursal, no lo deja crear. Si se equivocó de archivo, puede eliminar el inventario mientras nadie haya empezado a contar.
+1. **QF:** descarga desde **SPOS** el reporte de inventario de su sucursal en PDF y lo sube en **Nuevo inventario**. La app lee la sucursal, la fecha y cada producto con su cantidad del sistema, y le agrega el código de barras desde el maestro (que carga el administrador). Si el reporte es de otra sucursal, no lo deja crear. Si se equivocó de archivo, puede eliminar el inventario mientras nadie haya empezado a contar.
 2. **Auxiliar:** cuenta a ciegas (escaneando o digitando) y finaliza.
 3. **QF:** abre el **Reporte de desviaciones**, ordenado por **clase ABC** (A = desviaciones que suman el 80 % del valor, B = siguiente 15 %, C = resto) y **revisa cada desviación**: marca si la cantidad contada es correcta (la diferencia es real) o la corrige, y deja una observación. La app mide cuánto tiempo estuvo revisando cada producto.
    - **Revisión aleatoria:** elige al azar N productos de los más caros, de costo medio o de los más baratos (incluidos los que no tuvieron diferencia) para recontarlos.
@@ -47,6 +47,16 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
    - **Aprobar** solo se habilita cuando todas las desviaciones y la muestra aleatoria están revisadas.
 
 Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidades (la app lo avisa).
+
+## Tiempo del conteo
+
+En el reporte, la QF ve cuánto se demoró el conteo y cómo se repartió el tiempo:
+
+- **Inicio, fin y tiempo total**, y cuánto de ese tiempo se estuvo **contando**.
+- **Pausas:** si pasan más de 5 minutos sin registrar nada, se considera pausa. Se ve cuántas hubo y cuánto duró cada una.
+- **Tramos:** por ejemplo, *Tramo 1 · 09:00–09:10 · 10 min* → *Pausa de 4 min* → *Tramo 2 · 09:14–09:44 · 30 min*, con una línea de tiempo y quién contó cada tramo.
+
+Esto también queda en el Excel (hoja *Tiempo del conteo*) y en la bitácora.
 
 ## Bitácora
 
@@ -77,11 +87,11 @@ Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Mate
 
 ## Inventarios
 
-1. **Nuevo inventario** → subir el **reporte de existencias** (PDF o Excel). La app lee la sucursal, la fecha y cada producto con su código, nombre, categoría y cantidad del sistema, y le agrega el código de barras desde el maestro.
+1. **Nuevo inventario** (QF) → subir el **reporte de inventario de SPOS** (PDF o Excel). La app lee la sucursal, la fecha y cada producto con su código, nombre, categoría y cantidad del sistema, y le agrega el código de barras desde el maestro.
 2. La sucursal cuenta **sin ver las cantidades del sistema**: escaneando, buscando por nombre o código de material, con filtro por categoría. Si escanea algo que no figura en el reporte, la app muestra el nombre desde el maestro y lo registra como sobrante.
 3. Al cerrar: **Contado vs Sistema** por producto (faltante, sobrante, no encontrado, no figura en sistema), con exportación a Excel (material, código de barras, categoría).
 
-Probado con el reporte real de existencias CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
+Probado con el reporte de inventario real de CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
 
 ## Evidencia con fotos
 

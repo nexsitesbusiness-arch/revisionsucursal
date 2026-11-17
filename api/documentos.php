@@ -9,7 +9,7 @@ $u = require_login();
 $m = method();
 
 // Campos que cada rol puede cambiar en un documento.
-const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc'];
+const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc', 'tramos'];
 const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples'];
 
 function load_doc(string $id): ?array {

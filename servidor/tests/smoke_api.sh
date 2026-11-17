@@ -39,10 +39,11 @@ check "Auxiliar NO recibe vencimientos (los audita la QF)" "$(grep -c '"vencimie
 check "Auxiliar de otra sucursal no ve el documento" "$(call ana GET 'documentos.php?id=doc000001')" 404
 check "QF de la sucursal ve las cantidades" "$(call qf GET 'documentos.php?id=doc000001' >/dev/null; grep -c '"cantidad":59' "$T/out")" 1
 check "QF ve el vencimiento" "$(grep -c '"vencimiento":"2027-01-31"' "$T/out")" 1
-check "Auxiliar guarda su conteo" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":59,"i2":6},"items":[{"id":"i1","cantidad":0}],"review":{"i2":{"decision":"correcta"}}}}')" 200
+check "Auxiliar guarda su conteo" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"tramos":[{"ini":1000,"fin":61000,"n":2}],"counts":{"i1":59,"i2":6},"items":[{"id":"i1","cantidad":0}],"review":{"i2":{"decision":"correcta"}}}}')" 200
 call qf GET 'documentos.php?id=doc000001' >/dev/null
 check "El auxiliar no pudo cambiar cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 1
 check "El conteo del auxiliar quedó guardado" "$(grep -c '"counts":{"i1":59,"i2":6}' "$T/out")" 1
+check "Los tramos y pausas del conteo quedan guardados" "$(grep -c '"tramos":\[{"ini":1000' "$T/out")" 1
 check "El auxiliar no pudo registrar revisiones" "$(grep -c '"review":{"i2"' "$T/out")" 0
 echo "Inventario cargado por la QF (reporte de SPOS):"
 INVQF='{"documento":{"id":"docqf0001","tipo":"inventario","nombre":"Inventario QF","sucursal":"cl0007   renca","items":[{"id":"q1","sku":"CH9001","producto":"ACIDO BORICO","cantidad":5}],"counts":{},"extras":[],"evid":{},"log":[]}}'
