@@ -2,6 +2,17 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 17-11-2026 · Escáner nuevo: ZXing-C++ (WebAssembly)
+
+- El escáner usa **zxing-wasm 3.1.5** (ZXing-C++) en lugar de html5-qrcode 2.3.8.
+  - *Motivo:* html5-qrcode usa un ZXing antiguo en JavaScript que lee mal los DataMatrix y en iPhone no tiene alternativa. En 20 imágenes difíciles, el nuevo leyó 20 y el anterior 12.
+  - *Decisión:* el lector va **incluido en la app** (`vendor/zxing/`, ~1 MB, verificado contra npm) para funcionar sin internet y no depender de un CDN.
+- Cámara propia: alta resolución, lectura de la zona del recuadro, enfoque continuo y linterna.
+- Un código cuenta **una vez mientras siga a la vista** (antes se repetía cada 1,5 s si la cámara se quedaba quieta sobre el código).
+- Nuevo botón **Foto**: lee el código desde una foto si la cámara en vivo no está disponible.
+- Apache entrega los `.wasm` con su tipo correcto; se quitó `unpkg.com` de la política de seguridad (ya no se usa).
+- Ojo: los códigos de los archivos de ejemplo (`ejemplo-pedido.csv`, maestro de ejemplo) no tienen dígito verificador válido; sirven para escribir, pero no existen como códigos impresos reales.
+
 ## 17-11-2026 · Cierre con fecha de inicio, término y observación general
 
 - Al **aprobar**, la QF escribe una **observación general del cierre** (obligatoria; puede ser "Sin observaciones").

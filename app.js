@@ -1297,57 +1297,136 @@
     }
   });
 
-  // ---------- Cámara ----------
+  // ---------- Cámara: lector ZXing-C++ (WebAssembly) incluido en vendor/zxing ----------
+  // Lee EAN/UPC, Code 128/39/93, ITF, Codabar, GS1 DataBar, DataMatrix y QR en cualquier navegador
+  // (también iPhone/iPad, que no traen lector propio) y funciona sin internet.
+  const ZX_OPTS = { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'Code93', 'ITF', 'Codabar', 'DataBar', 'DataBarExp', 'DataMatrix', 'QRCode'],
+    tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1, textMode: 'Plain' };
+  let zxReady = null;
+  function loadZXing() {
+    if (zxReady) return zxReady;
+    zxReady = new Promise((resolve, reject) => {
+      const init = () => {
+        try {
+          ZXingWASM.prepareZXingModule({
+            overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? new URL('vendor/zxing/' + path, location.href).href : prefix + path) },
+            fireImmediately: true,
+          }).then(resolve, reject);
+        } catch (e) { reject(e); }
+      };
+      if (window.ZXingWASM) return init();
+      const sc = document.createElement('script');
+      sc.src = 'vendor/zxing/zxing-reader.js';
+      sc.onload = init;
+      sc.onerror = () => reject(new Error('No se pudo cargar el lector de códigos.'));
+      document.head.appendChild(sc);
+    }).catch((e) => { zxReady = null; throw e; });
+    return zxReady;
+  }
+  async function decodeImage(src) {
+    await loadZXing();
+    const res = await ZXingWASM.readBarcodes(src, ZX_OPTS);
+    const ok = res.find((r) => r.isValid && r.text);
+    return ok ? { text: ok.text, formato: ok.format } : null;
+  }
+  // Para pruebas y diagnóstico.
+  window.__zx = { decodeImage, loadZXing };
+
   let scanner = null, lastCode = '', lastTime = 0;
   $('#btnScan').onclick = () => (scanner ? stopScanner() : startScanner());
   $('#btnStopScan').onclick = () => stopScanner();
 
+  // Un código cuenta una sola vez mientras siga a la vista: para sumar otra caja igual,
+  // hay que sacarlo del recuadro (1 segundo sin verlo) y volver a mostrarlo.
+  function onDecoded(text) {
+    const now = Date.now();
+    const same = text === lastCode && now - lastTime < 1000;
+    lastCode = text; lastTime = now;
+    if (!same) handleCode(text);
+  }
+
   async function startScanner() {
-    if (!window.Html5Qrcode) return alert('No se pudo cargar el lector. Revisa tu conexión a internet.');
     $('#scanner').hidden = false;
     $('#btnScan').innerHTML = ic('x') + ' Cerrar';
-    const F = Html5QrcodeSupportedFormats;
-    scanner = new Html5Qrcode('reader', {
-      verbose: false,
-      useBarCodeDetectorIfSupported: true,
-      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE],
-    });
+    $('#scanStatus').textContent = 'Abriendo la cámara…';
+    const st = { stream: null, video: null, canvas: document.createElement('canvas'), paused: false, timer: 0, busy: false, track: null };
+    scanner = st;
     try {
-      await scanner.start({ facingMode: 'environment' },
-        { fps: 12, qrbox: (w, h) => ({ width: Math.min(w * 0.85, 360), height: Math.min(h * 0.55, 220) }), aspectRatio: 1.333 },
-        (text) => {
-          const now = Date.now();
-          if (text === lastCode && now - lastTime < 1500) return; // evita contar dos veces el mismo
-          lastCode = text; lastTime = now;
-          handleCode(text);
-        }, () => {});
-      try {
-        const caps = scanner.getRunningTrackCapabilities();
-        $('#btnTorch').hidden = !caps.torch;
-      } catch (e) { /* sin linterna */ }
-      $('#scanStatus').textContent = 'Apunta al código de barras o DataMatrix…';
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Este navegador no permite usar la cámara aquí (la página debe abrirse con https).');
+      const [stream] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }),
+        loadZXing(),
+      ]);
+      if (scanner !== st) { stream.getTracks().forEach((t) => t.stop()); return; }
+      st.stream = stream;
+      st.track = stream.getVideoTracks()[0];
+      try { await st.track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* sin enfoque continuo */ }
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', ''); v.muted = true; v.srcObject = stream;
+      $('#reader').innerHTML = '<div class="reader-frame"><span></span></div>';
+      $('#reader').prepend(v);
+      st.video = v;
+      await v.play();
+      try { $('#btnTorch').hidden = !(st.track.getCapabilities && st.track.getCapabilities().torch); } catch (e) { $('#btnTorch').hidden = true; }
+      $('#scanStatus').textContent = 'Apunta al código de barras o DataMatrix dentro del recuadro…';
+      const loop = async () => {
+        if (scanner !== st) return;
+        if (!st.paused && !st.busy && v.readyState >= 2 && v.videoWidth) {
+          st.busy = true;
+          try {
+            // Se lee la zona del recuadro (80 % del ancho, 60 % del alto), reducida a 1280 px como máximo.
+            const vw = v.videoWidth, vh = v.videoHeight;
+            const cw = Math.round(vw * 0.8), ch = Math.round(vh * 0.6);
+            const k = Math.min(1, 1280 / cw);
+            st.canvas.width = Math.round(cw * k); st.canvas.height = Math.round(ch * k);
+            const ctx = st.canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(v, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, st.canvas.width, st.canvas.height);
+            const r = await decodeImage(ctx.getImageData(0, 0, st.canvas.width, st.canvas.height));
+            if (r && scanner === st) onDecoded(r.text);
+          } catch (e) { /* cuadro ilegible */ }
+          st.busy = false;
+        }
+        st.timer = setTimeout(loop, 90);
+      };
+      loop();
     } catch (err) {
-      stopScanner();
-      alert('No se pudo abrir la cámara. Da permiso de cámara al navegador (la página debe abrirse con https).\n\n' + err);
+      await stopScanner();
+      const r = await ask({ title: 'No se pudo abrir la cámara',
+        html: `<p>${esc(err.message || String(err))}</p><p class="small muted">Revisa que el navegador tenga permiso de cámara. Mientras tanto, puedes <b>leer el código desde una foto</b> o escribirlo en el buscador.</p>`,
+        buttons: [{ label: 'Cerrar', value: '' }, { label: 'Leer desde foto', value: 'foto', cls: 'primary' }] });
+      if (r.value === 'foto') $('#fileScanPhoto').click();
     }
   }
   let torchOn = false;
   $('#btnTorch').onclick = async () => {
-    try { torchOn = !torchOn; await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* no soportado */ }
+    try { torchOn = !torchOn; await scanner.track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* no soportado */ }
   };
-  function pauseScanner(p) {
-    if (!scanner) return;
-    try { p ? scanner.pause(true) : scanner.resume(); } catch (e) { /* estado no válido */ }
-  }
+  function pauseScanner(p) { if (scanner) scanner.paused = !!p; }
   async function stopScanner() {
     if (!scanner) return;
     const s = scanner;
     scanner = null;
-    try { await s.stop(); s.clear(); } catch (e) { /* ya detenido */ }
+    clearTimeout(s.timer);
+    try { if (s.stream) s.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ya detenido */ }
+    $('#reader').innerHTML = '';
     $('#scanner').hidden = true;
     $('#btnScan').innerHTML = ic('scan') + ' Escanear';
+    $('#btnTorch').hidden = true;
     torchOn = false;
   }
+  // Leer el código desde una foto (si la cámara en vivo no está disponible o el código cuesta).
+  $('#fileScanPhoto').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    flash(`<span>Leyendo el código de la foto…</span>`, 'info');
+    try {
+      const r = await decodeImage(f);
+      if (!r) { beep(false); return flash(`${ic('alert')}<span>No se encontró un código en la foto. Acércate, enfoca y que el código quede derecho y con buena luz.</span>`, 'err'); }
+      audit('Leyó código desde foto', { detalle: r.formato });
+      handleCode(r.text);
+    } catch (err) { flash(`${ic('alert')}<span>${esc(err.message || 'No se pudo leer la foto.')}</span>`, 'err'); }
+  };
 
   // =========================================================
   // RESULTADOS

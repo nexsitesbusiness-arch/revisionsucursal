@@ -1,11 +1,12 @@
 // Modo sin conexión: guarda la app y las librerías para poder contar sin internet.
-const CACHE = 'revision-v18';
+const CACHE = 'revision-v19';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'gs1.js', 'importar.js', 'bitacora.js', 'desplegable.js', 'manifest.webmanifest', 'ejemplo-pedido.csv',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  // Lector de códigos (ZXing-C++ en WebAssembly): incluido para escanear sin internet.
+  'vendor/zxing/zxing-reader.js', 'vendor/zxing/zxing_reader.wasm',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js',
-  'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
 ];
 
 self.addEventListener('install', (e) => {

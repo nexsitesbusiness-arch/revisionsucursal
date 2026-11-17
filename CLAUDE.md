@@ -9,7 +9,8 @@ Antes de cambiar algo, usar las skills **estandares-bastian**, **cambios-sin-rom
 | Parte | Tecnología |
 |---|---|
 | Front-end | HTML + CSS + JavaScript sin framework ni compilación (`index.html`, `app.js`, `styles.css`) |
-| Librerías (CDN con SRI) | xlsx 0.18.5, lz-string 1.5.0, html5-qrcode 2.3.8; a pedido: mammoth 1.6.0 (Word), pdf.js 3.11.174, tesseract.js 5.1.1 (OCR) |
+| Librerías (CDN con SRI) | xlsx 0.18.5, lz-string 1.5.0; a pedido: mammoth 1.6.0 (Word), pdf.js 3.11.174, tesseract.js 5.1.1 (OCR) |
+| Lector de códigos (incluido) | `vendor/zxing/`: zxing-wasm 3.1.5 (ZXing-C++ en WebAssembly). Se carga al abrir la cámara o leer una foto, y el service worker lo guarda para usarlo sin internet. Ver `vendor/zxing/LEEME.md` |
 | Servidor (opcional) | PHP 8.3 + Apache (imagen `php:8.3-apache`), PDO MySQL, OPcache |
 | Base de datos | MySQL 8 (Cloud SQL) o MariaDB 10.6+ en local |
 | Nube | Google Cloud Run + Cloud SQL + Secret Manager, región `southamerica-west1` |
@@ -27,6 +28,7 @@ app.js            Lógica de la app (un IIFE). Funciones clave: api(), audit(), 
 styles.css        Estilo "Ejecutivo/Marino", solo tema claro, Roboto
 desplegable.js    Reemplaza TODO <select> por un desplegable propio (con buscador si hay > 8 opciones)
 bitacora.js       Bitácora local (IndexedDB, cadena SHA-256) para el modo sin servidor
+vendor/zxing/     Lector de códigos ZXing-C++ (WASM). Escáner en app.js: startScanner() (cámara, lee la zona del recuadro cada 90 ms) y decodeImage() (también para "Leer desde foto")
 gs1.js            Lee GTIN, lote (10) y vencimiento (17) de códigos DataMatrix / GS1-128
 importar.js       Lee Word, PDF, fotos (OCR) y el reporte de inventario en PDF
 sw.js             Service worker (funciona sin internet). Subir CACHE ('revision-vN') en cada cambio de archivos estáticos
