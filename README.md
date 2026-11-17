@@ -64,6 +64,8 @@ Además, **Tiempos del proceso** muestra todo el recorrido de punta a punta, con
 
 Mientras no termina, los pasos que faltan aparecen "en curso" o "pendiente". También va al Excel (hoja *Resumen*).
 
+**Cierre del inventario:** al aprobar, la QF escribe una **observación general** (obligatoria; si no hay nada que destacar, "Sin observaciones"). En el reporte queda arriba: **inicio** (fecha y hora en que se empezó a contar), **término** (fecha y hora de la aprobación), **quién cerró** y la observación. También va al Excel y a la bitácora.
+
 ## Bitácora
 
 Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora** del reporte para ver solo ese documento. Registra quién, qué, cuándo (hora de Santiago) y en qué equipo: inicios de sesión (también los fallidos y bloqueos), documentos abiertos, cada cantidad registrada, finalización, apertura del reporte, cada revisión de producto con su tiempo, revisiones aleatorias, búsquedas, filtros, exportaciones, aprobaciones, reaperturas, evidencias y cambios de usuarios, maestro y costos. Se filtra por usuario, acción, documento, fechas y texto, y se exporta a Excel.

@@ -2,6 +2,13 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 17-11-2026 · Cierre con fecha de inicio, término y observación general
+
+- Al **aprobar**, la QF escribe una **observación general del cierre** (obligatoria; puede ser "Sin observaciones").
+  - *Decisión:* obligatoria, para que todo cierre deje constancia.
+- El reporte muestra arriba: **inicio** del inventario (fecha y hora en que se empezó a contar), **término** (fecha y hora de aprobación), **quién cerró** y la observación. También en el Excel y en la bitácora.
+- El servidor guarda la observación solo si viene de la QF o del administrador, y la recorta a 1000 caracteres.
+
 ## 17-11-2026 · Tiempos del proceso completo
 
 - El reporte muestra **Tiempos del proceso**: PDF (o pedido) cargado → inicio del conteo → fin del conteo → inicio de la revisión de la QF → aprobado, con la espera o duración entre cada hito y el **total**. Lo pendiente se ve "en curso".

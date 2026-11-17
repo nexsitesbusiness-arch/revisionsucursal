@@ -1558,7 +1558,14 @@
     const tramos = [['Espera antes de contar', p.espera], ['Conteo', p.conteo], ['Espera de revisión', p.esperaRev], ['Revisión del QF', p.revision]];
     const vivo = (i) => hitos[i][1] && !hitos[i + 1][1];
     const total = p.total !== null ? fmtDur(p.total) : `${fmtDur(Date.now() - p.h.cargado)} hasta ahora`;
+    const cierre = `<div class="cierre">
+        <div><span>Inicio del ${esc(T(o).doc)}</span><b>${p.h.inicio ? fmtDate(p.h.inicio) : 'Aún no se empieza a contar'}</b></div>
+        <div><span>Término</span><b>${p.h.aprobado ? fmtDate(p.h.aprobado) : p.h.fin ? 'En revisión del QF' : 'En curso'}</b></div>
+        <div><span>Cerrado por</span><b>${o.verifiedBy ? esc(o.verifiedBy) : '—'}</b></div>
+      </div>
+      ${o.obsCierre ? `<div class="obs-cierre"><span>Observación general del cierre</span><p>${esc(o.obsCierre)}</p></div>` : ''}`;
     return `<div class="card pad proceso">
+      ${cierre}
       <div class="tiempo-head"><h3 class="card-title">${ic('history')} Tiempos del proceso</h3>
         <span class="proceso-total">Total: <b>${total}</b></span></div>
       <ol class="proceso-line">${hitos.map(([n, ts], i) => `
@@ -1756,14 +1763,24 @@
       if (r.value === 'ver') { $('#abcFilter').value = 'pend'; $('#reportSearch').value = ''; renderResultsTable(); }
       return;
     }
-    const r = await ask({ title: `Aprobar ${T(current).doc}`,
-      html: `<p>Todas las desviaciones están revisadas.</p><p>Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>`,
-      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar', value: 'ok', cls: 'primary' }] });
-    if (r.value !== 'ok') return;
+    // Cierre: la QF deja una observación general (obligatoria; puede ser "Sin observaciones").
+    let obs = '', falta = false, r;
+    for (;;) {
+      r = await ask({ title: `Cerrar y aprobar ${T(current).doc}`,
+        html: `<p>Todas las desviaciones están revisadas. Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>
+          <label>Observación general del cierre<textarea name="obsCierre" rows="3" maxlength="1000" placeholder="Ej: Se encontraron 2 cajas en bodega trasera; se informa a la central. Si no hay nada que destacar, escribe: Sin observaciones.">${esc(obs)}</textarea></label>
+          ${falta ? '<p class="small" style="color:var(--bad);margin:0">Escribe una observación general para cerrar.</p>' : ''}`,
+        buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar y cerrar', value: 'ok', cls: 'primary' }] });
+      if (r.value !== 'ok') return;
+      obs = (r.fields.obsCierre || '').trim().slice(0, 1000);
+      if (obs.length >= 3) break;
+      falta = true;
+    }
     current.verifiedAt = Date.now();
     current.verifiedBy = me.nombre;
+    current.obsCierre = obs;
     save();
-    audit(`Aprobó ${T(current).doc}`, { detalle: `${rows.filter((x) => x.review).length} productos revisados` });
+    audit(`Aprobó ${T(current).doc}`, { detalle: `${rows.filter((x) => x.review).length} productos revisados · obs: ${obs.slice(0, 200)}` });
     renderSummary();
     renderResultsTable();
   };
@@ -1824,6 +1841,8 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
     const info = [[T(current).Doc, safeCell(current.nombre)], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Reporte al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
+      ...((pr) => [['Inicio del ' + T(current).doc, pr.h.inicio ? fmtDate(pr.h.inicio) : ''], ['Término', pr.h.aprobado ? fmtDate(pr.h.aprobado) : ''],
+        ['Observación general del cierre', safeCell(current.obsCierre || '')]])(tiemposProceso(current)),
       ...((pr) => [[current.tipo === 'inventario' ? 'PDF cargado' : 'Pedido cargado', pr.h.cargado ? fmtDate(pr.h.cargado) : ''], ['Espera antes de contar', pr.espera !== null ? fmtDur(pr.espera) : ''],
         ['Inicio revisión QF', pr.h.revision ? fmtDate(pr.h.revision) : ''], ['Espera de revisión', pr.esperaRev !== null ? fmtDur(pr.esperaRev) : ''],
         ['Revisión del QF', pr.revision !== null ? fmtDur(pr.revision) : ''], ['Tiempo total del proceso', pr.total !== null ? fmtDur(pr.total) : '']])(tiemposProceso(current)),

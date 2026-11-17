@@ -10,7 +10,7 @@ $m = method();
 
 // Campos que cada rol puede cambiar en un documento.
 const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc', 'tramos'];
-const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples', 'revisionIni'];
+const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples', 'revisionIni', 'obsCierre'];
 
 function load_doc(string $id): ?array {
     $r = q('SELECT id, tipo, sucursal, version, datos FROM documentos WHERE id = ?', [$id])->fetch();
@@ -132,6 +132,7 @@ if ($m === 'PUT') {
             }
         }
     }
+    if (isset($new['obsCierre'])) $new['obsCierre'] = mb_substr(trim((string) $new['obsCierre']), 0, 1000);
     $nv = save_doc($new, $u, $version);
     if (!$nv) out(['ok' => false, 'error' => 'Otro equipo modificó este documento.', 'conflicto' => true], 409);
     $new['_version'] = $nv;
