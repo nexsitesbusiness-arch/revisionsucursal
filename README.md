@@ -58,6 +58,12 @@ En el reporte, la QF ve cuánto se demoró el conteo y cómo se repartió el tie
 
 Esto también queda en el Excel (hoja *Tiempo del conteo*) y en la bitácora.
 
+Además, **Tiempos del proceso** muestra todo el recorrido de punta a punta, con la hora de cada hito y cuánto pasó entre ellos:
+
+*PDF cargado 08:50 → (espera 20 min) → inicio del conteo 09:10 → (conteo 10 min) → fin 09:20 → (espera de revisión 30 min) → la QF empieza a revisar 09:50 → (revisión 15 min) → aprobado 10:05 · **Total 1 h 15 min***
+
+Mientras no termina, los pasos que faltan aparecen "en curso" o "pendiente". También va al Excel (hoja *Resumen*).
+
 ## Bitácora
 
 Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora** del reporte para ver solo ese documento. Registra quién, qué, cuándo (hora de Santiago) y en qué equipo: inicios de sesión (también los fallidos y bloqueos), documentos abiertos, cada cantidad registrada, finalización, apertura del reporte, cada revisión de producto con su tiempo, revisiones aleatorias, búsquedas, filtros, exportaciones, aprobaciones, reaperturas, evidencias y cambios de usuarios, maestro y costos. Se filtra por usuario, acción, documento, fechas y texto, y se exporta a Excel.

@@ -464,3 +464,26 @@ table.log td.when { white-space: nowrap; }
 .tl-list .tl-pausa { color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
 .tl-list .tl-pausa .ic { width: 14px; height: 14px; }
 @media (max-width: 700px) { .tiempo-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tl-list { display: grid; } }
+
+/* Tiempos del proceso (carga → conteo → revisión → aprobación) */
+.proceso { margin-bottom: 14px; display: grid; gap: 12px; }
+.proceso-total { font-size: 14px; color: var(--muted); } .proceso-total b { color: var(--text); font-size: 18px; }
+.proceso-line { list-style: none; margin: 0; padding: 0; display: flex; align-items: stretch; gap: 0; overflow-x: auto; }
+.proceso-line .hito { display: grid; gap: 2px; justify-items: center; text-align: center; min-width: 104px; font-size: 13px; padding: 0 4px; }
+.proceso-line .hito .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); }
+.proceso-line .hito.ok .dot { background: var(--primary); border-color: var(--primary); }
+.proceso-line .tramo { flex: 1; min-width: 92px; display: grid; align-content: start; justify-items: center; gap: 2px; font-size: 12px; color: var(--muted); padding-top: 0; position: relative; }
+.proceso-line .tramo::before { content: ""; height: 3px; width: 100%; background: var(--primary); border-radius: 3px; margin: 5.5px 0 4px; }
+.proceso-line .tramo.vivo::before { background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 10px); }
+.proceso-line .tramo.nada::before { background: var(--rule); }
+.proceso-line .tramo b { font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.proceso-line .tramo.vivo b { color: var(--warn); }
+@media (max-width: 700px) {
+  .proceso-line { display: grid; }
+  .proceso-line .hito { grid-template-columns: 14px auto 1fr; justify-items: start; text-align: left; gap: 10px; align-items: center; min-width: 0; }
+  .proceso-line .hito .muted { justify-self: end; }
+  .proceso-line .tramo { grid-template-columns: auto 1fr; justify-items: start; margin-left: 6px; padding: 4px 0 4px 16px; border-left: 3px solid var(--primary); min-width: 0; }
+  .proceso-line .tramo::before { display: none; }
+  .proceso-line .tramo.vivo { border-left-style: dashed; border-left-color: var(--warn); } .proceso-line .tramo.nada { border-left-color: var(--rule); }
+  .proceso-line .tramo b { justify-self: end; }
+}

@@ -1387,7 +1387,7 @@
   function lastPerson() {
     try { return localStorage.getItem('revision-responsable') || ''; } catch (e) { return ''; }
   }
-  const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
 
   // Costo unitario: el del pedido o, si no tiene, el del maestro / lista de precios.
   function priceFor(sku, ean) {
@@ -1457,6 +1457,12 @@
     $('#abcFilter').value = '';
     $('#reportSearch').value = '';
     audit('Abrió reporte de desviaciones');
+    // Hito del proceso: la primera vez que el QF abre el reporte de un conteo terminado.
+    if (current.finishedAt && !current.revisionIni && !current.verifiedAt && role() === 'qf') {
+      current.revisionIni = Date.now();
+      audit('Inició la revisión del conteo');
+      save();
+    }
     renderSummary();
     renderResultsTable();
   }
@@ -1495,6 +1501,7 @@
         <div class="kpi"><div class="l">Desviaciones ABC</div><div class="v abc-v"><span class="abc A">A ${nA.length}</span><span class="abc B">B ${nB.length}</span><span class="abc C">C ${nC.length}</span></div><div class="s">${byValue ? 'por valor' : 'por unidades'} · A = 80 % del total</div></div>
         <div class="kpi ${vPct === 100 ? 'ok' : ''}"><div class="l">Revisión QF</div><div class="v">${done.toLocaleString('es-CL')} / ${req.length.toLocaleString('es-CL')}</div><div class="s">Clase A: ${doneA} de ${nA.length}${samp.length ? ` · aleatorias: ${samp.filter((r) => r.review).length} de ${samp.length}` : ''}</div><div class="meter"><span style="width:${vPct}%"></span></div></div>
       </div>
+      ${procesoHtml(current)}
       ${tiempoHtml(current)}`;
     $('#btnApprove').hidden = !!current.verifiedAt;
     $('#btnRandom').hidden = !!current.verifiedAt;
@@ -1525,6 +1532,40 @@
       </div>
       <div class="timeline" aria-hidden="true">${tc.tramos.map((x) => `<span style="left:${pos(x.ini)}%;width:${Math.max(0.8, pos(x.fin) - pos(x.ini))}%"></span>`).join('')}</div>
       <ol class="tl-list">${pasos.join('')}</ol>
+    </div>`;
+  }
+
+  // Tiempos del proceso completo: carga → conteo → revisión del QF → aprobación.
+  function tiemposProceso(o) {
+    const tc = tiempoConteo(o);
+    const h = {
+      cargado: o.creado || null,
+      inicio: tc ? tc.ini : (o.startedAt || null),
+      fin: o.finishedAt || null,
+      revision: o.revisionIni || (o.verifiedAt ? o.finishedAt : null),
+      aprobado: o.verifiedAt || null,
+    };
+    const d = (a, b) => (a && b && b >= a ? b - a : null);
+    return { h, espera: d(h.cargado, h.inicio), conteo: d(h.inicio, h.fin), esperaRev: d(h.fin, h.revision),
+      revision: d(h.revision, h.aprobado), total: d(h.cargado, h.aprobado) };
+  }
+  function procesoHtml(o) {
+    const p = tiemposProceso(o);
+    if (!p.h.cargado) return '';
+    const dia = (ts) => new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit' }).format(ts).replace('/', '-');
+    const hora = (ts) => ts ? (dia(ts) === dia(p.h.cargado) ? hhmm(ts) : `${dia(ts)} ${hhmm(ts)}`) : '';
+    const hitos = [[o.tipo === 'inventario' ? 'PDF cargado' : 'Pedido cargado', p.h.cargado], ['Inicio del conteo', p.h.inicio], ['Fin del conteo', p.h.fin], ['Inicio revisión QF', p.h.revision], ['Aprobado', p.h.aprobado]];
+    const tramos = [['Espera antes de contar', p.espera], ['Conteo', p.conteo], ['Espera de revisión', p.esperaRev], ['Revisión del QF', p.revision]];
+    const vivo = (i) => hitos[i][1] && !hitos[i + 1][1];
+    const total = p.total !== null ? fmtDur(p.total) : `${fmtDur(Date.now() - p.h.cargado)} hasta ahora`;
+    return `<div class="card pad proceso">
+      <div class="tiempo-head"><h3 class="card-title">${ic('history')} Tiempos del proceso</h3>
+        <span class="proceso-total">Total: <b>${total}</b></span></div>
+      <ol class="proceso-line">${hitos.map(([n, ts], i) => `
+        <li class="hito ${ts ? 'ok' : ''}"><span class="dot"></span><b>${n}</b><span class="muted">${ts ? hora(ts) : 'pendiente'}</span></li>
+        ${i < tramos.length ? `<li class="tramo ${tramos[i][1] !== null ? '' : vivo(i) ? 'vivo' : 'nada'}"><span>${tramos[i][0]}</span><b>${tramos[i][1] !== null ? fmtDur(tramos[i][1]) : vivo(i) ? 'en curso' : '—'}</b></li>` : ''}`).join('')}
+      </ol>
+      ${o.reopened ? `<p class="small muted" style="margin:0">El conteo se reabrió ${o.reopened} vez(es): las horas son las del último cierre.</p>` : ''}
     </div>`;
   }
 
@@ -1783,6 +1824,9 @@
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
     const info = [[T(current).Doc, safeCell(current.nombre)], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Reporte al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
+      ...((pr) => [[current.tipo === 'inventario' ? 'PDF cargado' : 'Pedido cargado', pr.h.cargado ? fmtDate(pr.h.cargado) : ''], ['Espera antes de contar', pr.espera !== null ? fmtDur(pr.espera) : ''],
+        ['Inicio revisión QF', pr.h.revision ? fmtDate(pr.h.revision) : ''], ['Espera de revisión', pr.esperaRev !== null ? fmtDur(pr.esperaRev) : ''],
+        ['Revisión del QF', pr.revision !== null ? fmtDur(pr.revision) : ''], ['Tiempo total del proceso', pr.total !== null ? fmtDur(pr.total) : '']])(tiemposProceso(current)),
       ...((tc) => tc ? [['Tiempo total', fmtDur(tc.total)], ['Tiempo contando', fmtDur(tc.activo)], ['Pausas', tc.pausas.length], ['Tiempo en pausa', fmtDur(tc.pausas.reduce((s, x) => s + x, 0))]] : [])(tiempoConteo(current)),
       ['Veces reabierto', current.reopened || 0], ['Aprobado por', current.verifiedBy || ''], ['Aprobado el', current.verifiedAt ? fmtDate(current.verifiedAt) : '']];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');

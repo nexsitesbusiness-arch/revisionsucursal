@@ -2,6 +2,13 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 17-11-2026 · Tiempos del proceso completo
+
+- El reporte muestra **Tiempos del proceso**: PDF (o pedido) cargado → inicio del conteo → fin del conteo → inicio de la revisión de la QF → aprobado, con la espera o duración entre cada hito y el **total**. Lo pendiente se ve "en curso".
+- Se guarda la hora en que la QF abre el reporte por primera vez (`revisionIni`) y queda en la bitácora ("Inició la revisión del conteo"). El servidor solo deja guardarla a la QF o al administrador.
+- También va al Excel (hoja Resumen).
+- Duraciones de 1 hora o más se muestran como "1 h" o "1 h 15 min".
+
 ## 17-11-2026 · Tiempo del conteo con tramos y pausas; "reporte de inventario"
 
 - El reporte de la QF muestra el **tiempo del conteo**: inicio, fin, tiempo total, tiempo contando, cuántas **pausas** hubo y cuánto duró cada **tramo** (ej. 10 min, pausa, 4 min, pausa, 30 min), con una línea de tiempo.

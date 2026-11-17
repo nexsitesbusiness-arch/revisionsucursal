@@ -57,9 +57,11 @@ check "Auxiliar no puede eliminar documentos" "$(call aux DELETE 'documentos.php
 check "Versión antigua da conflicto" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":1}}}')" 409
 check "Auxiliar finaliza" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":2,"documento":{"counts":{"i1":59,"i2":6},"finishedAt":1}}')" 200
 check "Auxiliar no puede cambiar el conteo finalizado" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":1,"i2":6}}}')" 403
-check "Auxiliar no puede aprobar" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}' >/dev/null; grep -c verifiedAt "$T/out")" 0
+check "Auxiliar no puede aprobar" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1,"revisionIni":123}}' >/dev/null; grep -c verifiedAt "$T/out")" 0
+check "Auxiliar no puede marcar el inicio de la revisión" "$(grep -c revisionIni "$T/out")" 0
 check "QF no puede aprobar con pendientes" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}')" 409
-check "QF revisa" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"review":{"i2":{"decision":"correcta","obs":"ok"}}}}')" 200
+check "QF revisa" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"revisionIni":456,"review":{"i2":{"decision":"correcta","obs":"ok"}}}}')" 200
+check "Queda la hora en que la QF empezó a revisar" "$(grep -c '"revisionIni":456' "$T/out")" 1
 check "QF aprueba" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":5,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}')" 200
 check "Aprobado queda a nombre del QF" "$(grep -c '"verifiedBy":"Carla QF"' "$T/out")" 1
 echo "Evidencia:"

@@ -10,7 +10,7 @@ $m = method();
 
 // Campos que cada rol puede cambiar en un documento.
 const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc', 'tramos'];
-const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples'];
+const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples', 'revisionIni'];
 
 function load_doc(string $id): ?array {
     $r = q('SELECT id, tipo, sucursal, version, datos FROM documentos WHERE id = ?', [$id])->fetch();
