@@ -2,6 +2,10 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Página de prueba de cámara (Cefalmin)
+
+- Nueva `prueba-camara.html`: sin usuarios ni datos guardados. Abre la cámara y dice al tiro si leyó Cefalmin (EAN 7800038041210), en cuánto tiempo, y si leyó otro código. También acepta foto y DataMatrix GS1. Sirve para comprobar que la cámara de cada teléfono lee bien antes de usar la app.
+
 ## 20-11-2026 · Botón "Cargar ejemplo con Cefalmin"
 
 - En la app real, con la lista vacía, el administrador puede cargar con un toque el maestro con costos, un inventario de CL0099 CENTRO y un pedido de ejemplo (Cefalmin con EAN real). Funciona con y sin servidor.

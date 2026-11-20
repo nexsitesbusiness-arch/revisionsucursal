@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Prueba de cámara · Cefalmin</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<style>
+  :root { --navy: #13233a; --primary: #1f4fbf; --bg: #f3f5f8; --surface: #fff; --text: #14202e; --muted: #5d6b7c; --ok: #157a46; --ok-soft: #e7f5ed; --warn: #a8590a; --warn-soft: #fdf1e3; --rule: #e3e8ee; color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 "Roboto", system-ui, sans-serif; }
+  header { background: var(--navy); color: #fff; padding: 14px max(16px, env(safe-area-inset-left)); font-weight: 700; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-left)) 40px; display: grid; gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } p { margin: 0; color: var(--muted); }
+  .target { display: flex; gap: 12px; align-items: center; } .target b { font-size: 17px; } .mono { font-family: ui-monospace, Menlo, monospace; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  button, label.btn { font: inherit; font-weight: 500; border: 1px solid var(--rule); background: var(--surface); color: var(--text); border-radius: 999px; padding: 12px 20px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; flex: 1; justify-content: center; font-size: 17px; }
+  #cam { position: relative; background: #000; border-radius: 14px; overflow: hidden; }
+  #cam video { display: block; width: 100%; max-height: 55vh; object-fit: cover; }
+  #cam .frame { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  #cam .frame span { width: 80%; height: 60%; border: 3px solid rgba(255,255,255,.9); border-radius: 14px; box-shadow: 0 0 0 9999px rgba(0,0,0,.3); transition: border-color .2s; }
+  #cam.hit .frame span { border-color: #3ddc84; }
+  #estado { font-weight: 500; }
+  .big { font-size: 22px; font-weight: 700; }
+  .res { border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; }
+  .res.ok { background: var(--ok-soft); color: var(--ok); } .res.otro { background: var(--warn-soft); color: var(--warn); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .stats div { background: var(--bg); border-radius: 10px; padding: 8px; } .stats span { display: block; font-size: 12px; color: var(--muted); } .stats b { font-size: 20px; }
+  ol { margin: 0; padding-left: 20px; color: var(--muted); } li { margin: 2px 0; }
+  #log { list-style: none; padding: 0; margin: 0; font-size: 14px; } #log li { padding: 6px 0; border-top: 1px solid var(--rule); color: var(--text); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>Revisión Sucursal · Prueba de cámara</header>
+<main>
+  <section class="card">
+    <h1>¿La cámara lee bien Cefalmin?</h1>
+    <p>Apunta al código de barras de la caja. La página dice al tiro si lo leyó y en cuánto tiempo. No guarda nada.</p>
+    <div class="target" style="margin-top:12px"><span style="font-size:28px">💊</span><div><b>CEFALMIN COMPRIMIDOS X20</b><div class="mono">EAN 7800038041210</div></div></div>
+  </section>
+
+  <div class="btns">
+    <button class="primary" id="btnStart">📷 Iniciar cámara</button>
+    <button id="btnTorch" hidden>🔦 Linterna</button>
+    <label class="btn">🖼️ Foto<input type="file" id="foto" accept="image/*" capture="environment" hidden></label>
+  </div>
+
+  <div id="cam" hidden><div class="frame"><span></span></div></div>
+  <p id="estado">Toca "Iniciar cámara" y acepta el permiso.</p>
+
+  <div id="res" class="res" hidden></div>
+
+  <section class="card">
+    <div class="stats">
+      <div><span>Lecturas de Cefalmin</span><b id="nOk">0</b></div>
+      <div><span>Primera lectura</span><b id="tFirst">—</b></div>
+      <div><span>Otros códigos</span><b id="nOtro">0</b></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <b>Consejos si no lee</b>
+    <ol>
+      <li>Acerca el teléfono a unos 15 a 20 cm.</li>
+      <li>Deja el código derecho y entero dentro del recuadro.</li>
+      <li>Usa buena luz o la linterna; evita reflejos del plástico.</li>
+      <li>Si sigue sin leer, usa el botón Foto.</li>
+    </ol>
+  </section>
+
+  <section class="card"><b>Historial</b><ul id="log"><li style="color:var(--muted)">Aún no hay lecturas.</li></ul></section>
+</main>
+
+<script>
+(() => {
+  const CEFALMIN = '7800038041210';
+  const $ = (id) => document.getElementById(id);
+  const OPTS = { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'ITF', 'DataBar', 'DataBarExp', 'DataMatrix', 'QRCode'],
+    tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
+  let ready = null, stream = null, track = null, timer = 0, t0 = 0, nOk = 0, nOtro = 0, last = '', lastT = 0, torch = false;
+
+  function loadZX() {
+    if (ready) return ready;
+    ready = new Promise((res, rej) => {
+      const s = document.createElement('script'); s.src = 'vendor/zxing/zxing-reader.js';
+      s.onload = () => ZXingWASM.prepareZXingModule({ overrides: { locateFile: (p, pre) => (p.endsWith('.wasm') ? new URL('vendor/zxing/' + p, location.href).href : pre + p) }, fireImmediately: true }).then(res, rej);
+      s.onerror = () => rej(new Error('No se pudo cargar el lector.'));
+      document.head.appendChild(s);
+    }).catch((e) => { ready = null; throw e; });
+    return ready;
+  }
+  // GTIN del código (EAN directo, o el (01) de un DataMatrix GS1), sin ceros a la izquierda.
+  function gtin(text) {
+    const t = text.replace(/^\][A-Za-z]\d/, '').replace(/^\x1d/, '');
+    const m = t.match(/^01(\d{14})/);
+    return (m ? m[1] : t).replace(/^0+/, '');
+  }
+  function beep(ok) {
+    try { navigator.vibrate && navigator.vibrate(ok ? 80 : [40, 60, 40]); } catch (e) { /* sin vibración */ }
+    try { const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(); o.frequency.value = ok ? 1200 : 400; o.connect(a.destination); o.start(); setTimeout(() => { o.stop(); a.close(); }, 120); } catch (e) { /* sin sonido */ }
+  }
+  function show(r, via) {
+    const now = performance.now();
+    if (r.text === last && Date.now() - lastT < 1000) { lastT = Date.now(); return; }
+    last = r.text; lastT = Date.now();
+    const es = gtin(r.text) === CEFALMIN.replace(/^0+/, '');
+    const box = $('res'); box.hidden = false; box.className = 'res ' + (es ? 'ok' : 'otro');
+    const segs = t0 ? ((now - t0) / 1000).toFixed(1) + ' s' : '';
+    if (es) { nOk++; if ($('tFirst').textContent === '—' && t0) $('tFirst').textContent = segs; }
+    else nOtro++;
+    $('nOk').textContent = nOk; $('nOtro').textContent = nOtro;
+    box.innerHTML = es ? `<span class="big">✅ ¡Leyó Cefalmin!</span><span>Código ${CEFALMIN} · ${r.format} · ${via}</span>`
+      : `<span class="big">⚠️ Leyó otro código</span><span class="mono">${r.text.replace(/[<>&\x1d]/g, ' ')}</span><span>${r.format} · no es Cefalmin</span>`;
+    $('cam').classList.add('hit'); setTimeout(() => $('cam').classList.remove('hit'), 500);
+    beep(es);
+    const li = document.createElement('li');
+    li.textContent = `${new Date().toLocaleTimeString('es-CL', { hour12: false })} · ${es ? 'Cefalmin ✅' : 'Otro: ' + r.text.replace(/\x1d/g, ' ')} · ${r.format} · ${via}`;
+    const log = $('log'); if (log.firstElementChild && !log.firstElementChild.textContent.includes('·')) log.innerHTML = '';
+    log.prepend(li);
+  }
+  async function decode(src) {
+    const res = await ZXingWASM.readBarcodes(src, OPTS);
+    return res.find((x) => x.isValid && x.text) || null;
+  }
+  async function start() {
+    if (stream) return stop();
+    $('estado').textContent = 'Abriendo la cámara…';
+    try {
+      const [s] = await Promise.all([navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }), loadZX()]);
+      stream = s; track = s.getVideoTracks()[0];
+      try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* sin enfoque continuo */ }
+      const v = document.createElement('video'); v.setAttribute('playsinline', ''); v.muted = true; v.srcObject = s;
+      const cam = $('cam'); cam.querySelector('video')?.remove(); cam.prepend(v); cam.hidden = false;
+      await v.play();
+      try { $('btnTorch').hidden = !(track.getCapabilities && track.getCapabilities().torch); } catch (e) { /* sin linterna */ }
+      $('btnStart').textContent = '✖ Detener cámara';
+      $('estado').textContent = 'Apunta al código de barras dentro del recuadro…';
+      t0 = performance.now();
+      const c = document.createElement('canvas'); let busy = false;
+      const loop = async () => {
+        if (!stream) return;
+        if (!busy && v.videoWidth) {
+          busy = true;
+          try {
+            const vw = v.videoWidth, vh = v.videoHeight, cw = Math.round(vw * 0.8), ch = Math.round(vh * 0.6), k = Math.min(1, 1280 / cw);
+            c.width = Math.round(cw * k); c.height = Math.round(ch * k);
+            const x = c.getContext('2d', { willReadFrequently: true });
+            x.drawImage(v, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, c.width, c.height);
+            const r = await decode(x.getImageData(0, 0, c.width, c.height));
+            if (r) show(r, 'cámara en vivo');
+          } catch (e) { /* cuadro ilegible */ }
+          busy = false;
+        }
+        timer = setTimeout(loop, 90);
+      };
+      loop();
+    } catch (e) {
+      stop();
+      $('estado').textContent = 'No se pudo abrir la cámara: ' + (e.message || e) + '. Revisa el permiso de cámara del navegador, o usa el botón Foto.';
+    }
+  }
+  function stop() {
+    clearTimeout(timer);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null; track = null; torch = false;
+    $('cam').hidden = true; $('btnTorch').hidden = true;
+    $('btnStart').textContent = '📷 Iniciar cámara';
+    $('estado').textContent = 'Cámara detenida.';
+  }
+  $('btnStart').onclick = start;
+  $('btnTorch').onclick = async () => { try { torch = !torch; await track.applyConstraints({ advanced: [{ torch }] }); } catch (e) { /* no soportado */ } };
+  $('foto').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    $('estado').textContent = 'Leyendo la foto…';
+    try { await loadZX(); const r = await decode(f); if (r) { show(r, 'foto'); $('estado').textContent = 'Foto leída.'; } else { beep(false); $('estado').textContent = 'No se encontró un código en la foto. Acércate, enfoca y que el código quede derecho.'; } }
+    catch (err) { $('estado').textContent = 'No se pudo leer la foto: ' + err.message; }
+  };
+  window.__prueba = { show };
+})();
+</script>
+</body>
+</html>
