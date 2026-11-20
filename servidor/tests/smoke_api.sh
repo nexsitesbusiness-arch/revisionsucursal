@@ -19,16 +19,16 @@ check "Clave común rechazada" "$(call admin POST setup.php '{"nombre":"Admin","
 check "Crear administrador" "$(call admin POST setup.php '{"nombre":"Admin Central","usuario":"admin","clave":"Central2026"}')" 200
 check "Segunda configuración bloqueada" "$(call otro POST setup.php '{"nombre":"X","usuario":"x","clave":"Otra2026x"}')" 409
 echo "Usuarios:"
-check "Crear QF" "$(call admin POST usuarios.php '{"nombre":"Carla QF","usuario":"carla","rol":"qf","sucursal":"CL0007 RENCA","clave":"Revisa2026"}')" 200
-check "Crear auxiliar" "$(call admin POST usuarios.php '{"nombre":"Pedro Aux","usuario":"pedro","rol":"auxiliar","sucursal":"CL0007 RENCA","clave":"Cuenta2026"}')" 200
-check "Crear auxiliar de otra sucursal" "$(call admin POST usuarios.php '{"nombre":"Ana Aux","usuario":"ana","rol":"auxiliar","sucursal":"CL0009 MAIPU","clave":"Cuenta2026"}')" 200
+check "Crear QF" "$(call admin POST usuarios.php '{"nombre":"Carla QF","usuario":"carla","rol":"qf","sucursal":"CL0099 CENTRO","clave":"Revisa2026"}')" 200
+check "Crear auxiliar" "$(call admin POST usuarios.php '{"nombre":"Pedro Aux","usuario":"pedro","rol":"auxiliar","sucursal":"CL0099 CENTRO","clave":"Cuenta2026"}')" 200
+check "Crear auxiliar de otra sucursal" "$(call admin POST usuarios.php '{"nombre":"Ana Aux","usuario":"ana","rol":"auxiliar","sucursal":"CL0098 PONIENTE","clave":"Cuenta2026"}')" 200
 check "Login auxiliar" "$(call aux POST login.php '{"usuario":"pedro","clave":"Cuenta2026"}')" 200
 check "Login auxiliar otra sucursal" "$(call ana POST login.php '{"usuario":"ana","clave":"Cuenta2026"}')" 200
 check "Login QF" "$(call qf POST login.php '{"usuario":"carla","clave":"Revisa2026"}')" 200
 check "Auxiliar no puede administrar usuarios" "$(call aux GET usuarios.php)" 403
 check "Auxiliar no puede crear usuarios" "$(call aux POST usuarios.php '{"nombre":"Hack","usuario":"hack","rol":"admin","clave":"Hackeo2026"}')" 403
 echo "Documento:"
-DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0007","sucursal":"CL0007 RENCA","items":[{"id":"i1","sku":"CH9001","codigo":"7806130007772","producto":"ACIDO BORICO","cantidad":59,"precio":1000,"vencimiento":"2027-01-31"},{"id":"i2","sku":"CH6091","codigo":"7794640172731","producto":"ADHESIVO","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0099","sucursal":"CL0099 CENTRO","items":[{"id":"i1","sku":"100990","codigo":"7800038041210","producto":"CEFALMIN COMPRIMIDOS X20","cantidad":59,"precio":1000,"vencimiento":"2027-01-31"},{"id":"i2","sku":"100871","codigo":"7801234500037","producto":"ATORVASTATINA 20 MG","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
 check "Auxiliar no puede crear documentos" "$(call aux POST documentos.php "$DOC")" 403
 check "Admin crea inventario" "$(call admin POST documentos.php "$DOC")" 200
 check "Mapa vacío viaja como objeto (no lista)" "$(grep -c '"counts":{}' "$T/out")" 1
@@ -46,11 +46,11 @@ check "El conteo del auxiliar quedó guardado" "$(grep -c '"counts":{"i1":59,"i2
 check "Los tramos y pausas del conteo quedan guardados" "$(grep -c '"tramos":\[{"ini":1000' "$T/out")" 1
 check "El auxiliar no pudo registrar revisiones" "$(grep -c '"review":{"i2"' "$T/out")" 0
 echo "Inventario cargado por la QF (reporte de SPOS):"
-INVQF='{"documento":{"id":"docqf0001","tipo":"inventario","nombre":"Inventario QF","sucursal":"cl0007   renca","items":[{"id":"q1","sku":"CH9001","producto":"ACIDO BORICO","cantidad":5}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+INVQF='{"documento":{"id":"docqf0001","tipo":"inventario","nombre":"Inventario QF","sucursal":"cl0099   centro","items":[{"id":"q1","sku":"100990","producto":"CEFALMIN COMPRIMIDOS X20","cantidad":5}],"counts":{},"extras":[],"evid":{},"log":[]}}'
 check "QF crea inventario de su sucursal" "$(call qf POST documentos.php "$INVQF")" 200
-check "QF no puede crear pedidos" "$(call qf POST documentos.php '{"documento":{"id":"docqf0002","tipo":"pedido","nombre":"P","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
-check "QF no puede crear inventario de otra sucursal" "$(call qf POST documentos.php '{"documento":{"id":"docqf0003","tipo":"inventario","nombre":"I","sucursal":"CL0009 MAIPU","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
-check "Auxiliar no puede crear inventarios" "$(call aux POST documentos.php '{"documento":{"id":"docqf0004","tipo":"inventario","nombre":"I","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF no puede crear pedidos" "$(call qf POST documentos.php '{"documento":{"id":"docqf0002","tipo":"pedido","nombre":"P","sucursal":"CL0099 CENTRO","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF no puede crear inventario de otra sucursal" "$(call qf POST documentos.php '{"documento":{"id":"docqf0003","tipo":"inventario","nombre":"I","sucursal":"CL0098 PONIENTE","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "Auxiliar no puede crear inventarios" "$(call aux POST documentos.php '{"documento":{"id":"docqf0004","tipo":"inventario","nombre":"I","sucursal":"CL0099 CENTRO","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
 check "QF elimina inventario sin conteo" "$(call qf DELETE 'documentos.php?id=docqf0001')" 200
 check "QF no puede eliminar un inventario ya contado" "$(call qf DELETE 'documentos.php?id=doc000001')" 403
 check "Auxiliar no puede eliminar documentos" "$(call aux DELETE 'documentos.php?id=doc000001')" 403
@@ -71,7 +71,7 @@ c=$(csrf qf); check "Sube foto JPG" "$(curl -s -o "$T/out" -w '%{http_code}' -b 
 c=$(csrf qf); check "Rechaza archivo que no es foto" "$(curl -s -o /dev/null -w '%{http_code}' -b "$T/qf" -c "$T/qf" -X POST -H "X-CSRF-Token: $c" --data-binary @"$T/x.php" "$BASE/api/evidencia.php?doc=doc000001")" 400
 echo "Bitácora:"
 check "Auxiliar no puede ver la bitácora" "$(call aux GET bitacora.php)" 403
-check "Auxiliar sí registra su actividad" "$(call aux POST bitacora.php '{"eventos":[{"accion":"Registró cantidad","producto":"ACIDO BORICO","detalle":"0 → 59","usuario":"admin"}]}')" 200
+check "Auxiliar sí registra su actividad" "$(call aux POST bitacora.php '{"eventos":[{"accion":"Registró cantidad","producto":"CEFALMIN COMPRIMIDOS X20","detalle":"0 → 59","usuario":"admin"}]}')" 200
 call admin GET bitacora.php >/dev/null
 check "El usuario del evento lo pone el servidor (no el cliente)" "$(grep -o '"usuario":"pedro","nombre":"Pedro Aux","rol":"auxiliar","accion":"Registró cantidad"' "$T/out" | wc -l | tr -d ' ')" 1
 check "Integridad OK" "$(call admin GET 'bitacora.php?verificar=1' >/dev/null; grep -c '"integra":true' "$T/out")" 1

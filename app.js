@@ -327,7 +327,7 @@
       list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre el enlace o archivo que te enviaron.' : isStaff() ? 'Para tomar inventario, descarga de SPOS el reporte de inventario en PDF y usa <b>Nuevo inventario</b>.' : 'Cuando la QF cargue un inventario o llegue un pedido, aparecerá aquí.'}
         ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
       if ($('#btnDemo')) $('#btnDemo').onclick = async () => {
-        let o = createDemo();
+        let o = createSamplePedido();
         if (SERVER) {
           db.orders = db.orders.filter((x) => x !== o);
           try { o = await persistNewDoc(o); } catch (e) { return info('No se pudo crear', esc(e.message)); }
@@ -353,7 +353,23 @@
   }
 
   // Pedido de ejemplo para probar la app sin preparar archivos.
-  function createDemo() {
+  // Demo: maestro con costos, un inventario de la sucursal (como el reporte de SPOS) y un pedido que llega.
+  // Productos y códigos ficticios (EAN-13 válidos, para poder imprimirlos y escanearlos).
+  const DEMO_SUC = 'CL0099 CENTRO';
+  const DEMO_PROD = [
+    // material, nombre, categoría, EAN, costo, existencia según sistema
+    ['100990', 'CEFALMIN COMPRIMIDOS X20', 'MEDICAMENTOS', '7800038041210', 3990, 24],
+    ['100871', 'ATORVASTATINA 20 MG X30 COMP', 'MEDICAMENTOS', '7801234500037', 8990, 12],
+    ['100872', 'LOSARTAN 50 MG X30 COMP', 'MEDICAMENTOS', '7801234500044', 3290, 25],
+    ['101302', 'PARACETAMOL 500 MG X16 COMP', 'MEDICAMENTOS', '7801234500099', 990, 30],
+    ['100246', 'ENOXAPARINA 40 MG JERINGA X2', 'REFRIGERADOS', '7801234500020', 21500, 8],
+    ['100245', 'INSULINA GLARGINA 100 UI/ML LAPICERA', 'REFRIGERADOS', '7801234500013', 38900, 6],
+    ['101455', 'OMEPRAZOL 20 MG X28 CAPS', 'DIGESTIVO', '7801234500112', 1890, 10],
+    ['102010', 'VITAMINA C 1 G X10 EFERV', 'SUPLEMENTOS', '7801234500136', 2290, 22],
+    ['103001', 'ALCOHOL GEL 250 ML', 'CUIDADO PERSONAL', '7801234500167', 1290, 35],
+  ];
+  // Pedido de ejemplo del botón "Cargar pedido de ejemplo" (app normal).
+  function createSamplePedido() {
     const items = [
       ['7790001000011', 'Paracetamol 500 mg x 20 comp', 'L2405A', 2.5, 30, '2027-05-31'],
       ['7790001000028', 'Ibuprofeno 400 mg x 10 comp', 'IB7781', 3.1, 24, '2027-02-28'],
@@ -366,6 +382,23 @@
     db.orders.push(o);
     if (!SERVER) save();
     return o;
+  }
+  function createDemo() {
+    if (!(catalog.items || []).length) {
+      setCatalog({ items: DEMO_PROD.map(([sku, nombre, grupo, ean, precio]) => ({ sku, nombre, ean, unidad: 'UN', grupo, precio })), actualizado: Date.now(), archivo: 'maestro de ejemplo' });
+    }
+    const inv = newOrder({ tipo: 'inventario', nombre: `Inventario ${DEMO_SUC} (ejemplo)`, sucursal: DEMO_SUC, fechaSistema: new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago' }).format(Date.now()),
+      items: DEMO_PROD.map(([sku, producto, categoria, codigo, precio, cantidad]) => ({ id: uid(), sku, codigo, producto, categoria, cantidad, lote: '', precio, vencimiento: '' })) });
+    const ped = newOrder({ nombre: 'Pedido 4512 (ejemplo)', sucursal: DEMO_SUC, items: [
+      ['7801234500099', 'PARACETAMOL 500 MG X16 COMP', 'P5521', 990, 30, '2027-05-31'],
+      ['7800038041210', 'CEFALMIN COMPRIMIDOS X20', 'CF2411', 3990, 12, '2027-01-31'],
+      ['7801234500013', 'INSULINA GLARGINA 100 UI/ML LAPICERA', 'IN2409', 38900, 6, '2027-03-31'],
+      ['7801234500112', 'OMEPRAZOL 20 MG X28 CAPS', 'O3302', 1890, 20, '2027-02-28'],
+      ['7801234500167', 'ALCOHOL GEL 250 ML', 'AG0915', 1290, 40, '2028-01-31'],
+    ].map(([codigo, producto, lote, precio, cantidad, vencimiento]) => ({ id: uid(), codigo, producto, lote, precio, cantidad, vencimiento })) });
+    db.orders.push(inv, ped);
+    if (!SERVER) save();
+    return ped;
   }
 
   // Solo tema claro (estándar del proyecto). Se limpia la preferencia antigua de modo oscuro.
@@ -2051,11 +2084,22 @@
     $('#loginError').hidden = true;
     $('#loginForm').reset();
     $('#loginDemo').hidden = !window.REVISION_DEMO;
-    $('#loginDemo').innerHTML = 'Demo: administrador <b>admin</b> / <b>admin123</b> · QF <b>qf</b> / <b>qf123</b> · auxiliar <b>renca</b> / <b>1234</b>';
+    $('#loginDemo').innerHTML = `<span class="demo-title">Entrar con un toque (demo)</span>
+      <span class="demo-btns">${DEMO_USERS.map(([nombre, usuario, , rol]) => `<button type="button" class="btn ${rol === 'auxiliar' ? 'primary' : ''}" data-demo="${usuario}">${ic(rol === 'admin' ? 'shield' : rol === 'qf' ? 'check' : 'scan')} ${esc(nombre)}</button>`).join('')}</span>
+      <span class="small muted">Trae un inventario y un pedido de ejemplo listos para contar.</span>`;
     setTimeout(() => (setup ? $('#setupNombre') : $('#loginUser')).focus(), 50);
   }
   function loginError(msg) { const e = $('#loginError'); e.textContent = msg; e.hidden = false; }
 
+  // Demo: entrar con un toque como Administrador, QF o Auxiliar.
+  const DEMO_USERS = [['Administrador', 'admin', 'admin123', 'admin'], ['QF', 'qf', 'qf123', 'qf'], ['Auxiliar', 'auxiliar', 'aux1234', 'auxiliar']];
+  $('#loginDemo').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-demo]');
+    const d = b && DEMO_USERS.find((x) => x[1] === b.dataset.demo);
+    if (!d) return;
+    $('#loginUser').value = d[1]; $('#loginPass').value = d[2];
+    $('#loginForm').requestSubmit();
+  });
   $('#loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const usuario = $('#loginUser').value.trim().toLowerCase();
@@ -2235,7 +2279,7 @@
           <option value="auxiliar" ${!u || u.rol === 'auxiliar' ? 'selected' : ''}>Auxiliar: solo digita cantidades</option>
           <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: carga el inventario, revisa y aprueba</option>
           <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: configura y carga pedidos</option></select></label>
-        <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
+        <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0099 CENTRO"></label>
         ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
     if (r.value !== 'ok') return;
@@ -2539,7 +2583,7 @@
       <div class="card pad">
         <h3 class="card-title">Datos del inventario</h3>
         <div class="grid2">
-          <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0007 RENCA"></label>
+          <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0099 CENTRO"></label>
           <label class="field">Fecha del reporte<input id="invFecha" value="${esc(d.fecha)}" placeholder="dd/mm/aaaa"></label>
         </div>
       </div>
@@ -2801,13 +2845,13 @@
     }
     // Demo: usuarios de prueba para entrar sin configurar nada.
     if (window.REVISION_DEMO) {
-      const demo = [['Administrador', 'admin', 'admin123', 'admin'], ['QF Renca', 'qf', 'qf123', 'qf'], ['Auxiliar Renca', 'renca', '1234', 'auxiliar']];
-      for (const [nombre, usuario, pass, rol] of demo) {
-        if (!users.some((u) => u.usuario === usuario)) users.push(await makeUser({ nombre, usuario, pass, rol, sucursal: rol === 'admin' ? '' : 'CL0007 RENCA' }));
+      for (const [nombre, usuario, pass, rol] of DEMO_USERS) {
+        if (!users.some((u) => u.usuario === usuario)) users.push(await makeUser({ nombre, usuario, pass, rol, sucursal: rol === 'admin' ? '' : DEMO_SUC }));
       }
       saveUsers();
     }
-    if (window.REVISION_DEMO && !db.orders.length) createDemo();
+    // Demo: inventario y pedido de ejemplo (también si el equipo traía la demo antigua).
+    if (window.REVISION_DEMO && !db.orders.some((o) => / \(ejemplo\)$/.test(o.nombre || ''))) createDemo();
     const sid = loadJSON(SESSION_KEY, null) || (() => { try { return localStorage.getItem(SESSION_KEY); } catch (e) { return null; } })();
     const u = users.find((x) => x.id === sid);
     if (u) afterLogin(u, true); else showLogin();
