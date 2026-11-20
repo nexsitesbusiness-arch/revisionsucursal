@@ -2,6 +2,12 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Publicación en Cloudflare Pages
+
+- Nuevo `servidor/publicar-estatico.sh`: arma `_site` solo con los archivos de la app. Lo usan GitHub Pages y Cloudflare Pages.
+- Nuevo `_headers`: cabeceras de seguridad y tipo `application/wasm` en Cloudflare.
+  - *Motivo:* el repositorio es privado y GitHub Pages no se puede usar sin plan pago; Cloudflare Pages sí publica desde repositorios privados gratis. Pasos en `DEPLOY.md`.
+
 ## 20-11-2026 · Prueba con Cefalmin y ajuste de la cámara
 
 - Prueba de punta a punta en el servidor con un producto Cefalmin de ejemplo (cámara en vivo, foto de DataMatrix, revisión y cierre de la QF): todo correcto.

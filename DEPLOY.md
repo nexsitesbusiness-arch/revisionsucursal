@@ -14,6 +14,18 @@ La app detecta sola si hay servidor (`api/estado.php`). No hay que cambiar nada 
 1. En GitHub: **Settings → Pages → Source: GitHub Actions**.
 2. Cada merge a `main` publica la app en `https://<usuario>.github.io/revisionsucursal/`.
 
+## 1b. Sin servidor: Cloudflare Pages (sirve con repositorio privado, gratis)
+
+1. En Cloudflare: **Workers & Pages → Create → Pages → Connect to Git** y autoriza el repositorio `revisionsucursal` (puede ser privado).
+2. Configuración de compilación:
+   - **Production branch:** `main`
+   - **Framework preset:** None
+   - **Build command:** `bash servidor/publicar-estatico.sh`
+   - **Build output directory:** `_site`
+3. **Save and Deploy.** Queda en `https://<nombre-del-proyecto>.pages.dev` y se republica sola con cada cambio en `main`.
+
+El script `servidor/publicar-estatico.sh` copia solo los archivos de la app (sin PHP, SQL, pruebas ni documentación). `_headers` agrega las cabeceras de seguridad y el tipo correcto del lector `.wasm`.
+
 ## 2. Con servidor: Google Cloud (Cloud Run + Cloud SQL)
 
 Requisitos: proyecto de Google Cloud con facturación, `gcloud` instalado y la región `southamerica-west1` (Santiago).
