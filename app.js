@@ -358,7 +358,7 @@
   const DEMO_SUC = 'CL0099 CENTRO';
   const DEMO_PROD = [
     // material, nombre, categoría, EAN, costo, existencia según sistema
-    ['100990', 'CEFALMIN COMPRIMIDOS X20', 'MEDICAMENTOS', '7801234500990', 3990, 24],
+    ['100990', 'CEFALMIN COMPRIMIDOS X20', 'MEDICAMENTOS', '7800038041210', 3990, 24],
     ['100871', 'ATORVASTATINA 20 MG X30 COMP', 'MEDICAMENTOS', '7801234500037', 8990, 12],
     ['100872', 'LOSARTAN 50 MG X30 COMP', 'MEDICAMENTOS', '7801234500044', 3290, 25],
     ['101302', 'PARACETAMOL 500 MG X16 COMP', 'MEDICAMENTOS', '7801234500099', 990, 30],
@@ -391,7 +391,7 @@
       items: DEMO_PROD.map(([sku, producto, categoria, codigo, precio, cantidad]) => ({ id: uid(), sku, codigo, producto, categoria, cantidad, lote: '', precio, vencimiento: '' })) });
     const ped = newOrder({ nombre: 'Pedido 4512 (ejemplo)', sucursal: DEMO_SUC, items: [
       ['7801234500099', 'PARACETAMOL 500 MG X16 COMP', 'P5521', 990, 30, '2027-05-31'],
-      ['7801234500990', 'CEFALMIN COMPRIMIDOS X20', 'CF2411', 3990, 12, '2027-01-31'],
+      ['7800038041210', 'CEFALMIN COMPRIMIDOS X20', 'CF2411', 3990, 12, '2027-01-31'],
       ['7801234500013', 'INSULINA GLARGINA 100 UI/ML LAPICERA', 'IN2409', 38900, 6, '2027-03-31'],
       ['7801234500112', 'OMEPRAZOL 20 MG X28 CAPS', 'O3302', 1890, 20, '2027-02-28'],
       ['7801234500167', 'ALCOHOL GEL 250 ML', 'AG0915', 1290, 40, '2028-01-31'],

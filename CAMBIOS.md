@@ -2,6 +2,12 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Planillas de ejemplo con Cefalmin (EAN real 7800038041210)
+
+- Nueva carpeta `ejemplos/`: maestro, inventario (PDF formato SPOS y Excel), pedido (Excel y CSV) y hoja de códigos para imprimir.
+- La demo usa el EAN real de Cefalmin, para poder escanear una caja real.
+- Verificado: la app carga las cuatro planillas, y los 10 códigos de la hoja impresa se leen (incluido el DataMatrix con lote y vencimiento).
+
 ## 20-11-2026 · Demo: entrar con un toque y datos de ejemplo
 
 - En la demo (solo con `REVISION_DEMO`), la pantalla de ingreso tiene botones **Administrador**, **QF** y **Auxiliar** para entrar con un toque.

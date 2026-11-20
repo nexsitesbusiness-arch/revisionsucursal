@@ -48,6 +48,18 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
 Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidades (la app lo avisa).
 
+## Planillas de ejemplo (`ejemplos/`)
+
+Para probar sin datos reales. Cefalmin usa su código real (**7800038041210**); los demás productos son ficticios (EAN válidos).
+
+| Archivo | Para qué |
+|---|---|
+| `maestro-ejemplo.xlsx` | Maestro de productos: material, nombre, categoría, unidad, EAN y costo (Menú → Maestro de productos). |
+| `inventario-ejemplo-spos.pdf` | Reporte de inventario con el formato de SPOS, sucursal CL0099 CENTRO (Nuevo inventario, como QF). |
+| `inventario-ejemplo.xlsx` | El mismo inventario en Excel. |
+| `pedido-ejemplo.xlsx` / `.csv` | Pedido que llega: código, producto, lote, precio, cantidad y vencimiento (Nuevo pedido). |
+| `codigos-para-imprimir.pdf` | Hoja A4 con el EAN-13 de cada producto y un DataMatrix GS1 de Cefalmin (lote CF2411, vence 31-01-2027) para probar la cámara. |
+
 ## Escáner de códigos
 
 El escáner usa **ZXing-C++** (WebAssembly), incluido en la app (`vendor/zxing/`):
