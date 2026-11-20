@@ -6,7 +6,7 @@ require __DIR__ . '/../lib.php';
 $nDocs = (int) ($argv[1] ?? 50);
 $nLog = (int) ($argv[2] ?? 100000);
 $admin = q('SELECT id FROM usuarios WHERE rol = "admin" LIMIT 1')->fetch()['id'] ?? null;
-$sucursales = ['CL0007 RENCA', 'CL0009 MAIPU', 'CL0012 PUENTE ALTO', 'CL0015 NUNOA', 'CL0021 LA FLORIDA'];
+$sucursales = ['CL0099 CENTRO', 'CL0098 PONIENTE', 'CL0097 NORTE', 'CL0096 ORIENTE', 'CL0095 SUR'];
 for ($k = 0; $k < $nDocs; $k++) {
     $items = []; $counts = [];
     for ($i = 0; $i < 1219; $i++) {

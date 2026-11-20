@@ -2,6 +2,11 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Limpieza antes de hacer público el repositorio
+
+- Se reemplazaron las menciones a sucursales reales y a códigos de productos reales (en ejemplos de texto, pruebas y README) por datos ficticios (CL0099 CENTRO, etc.).
+  - *Motivo:* el repositorio pasa a ser público para publicarlo con GitHub Pages (cámara en vivo con https). Se revisó todo el historial: nunca se subieron el reporte real ni el maestro real.
+
 ## 20-11-2026 · Planillas de ejemplo con Cefalmin (EAN real 7800038041210)
 
 - Nueva carpeta `ejemplos/`: maestro, inventario (PDF formato SPOS y Excel), pedido (Excel y CSV) y hoja de códigos para imprimir.

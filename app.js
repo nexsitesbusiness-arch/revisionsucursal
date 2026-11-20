@@ -2279,7 +2279,7 @@
           <option value="auxiliar" ${!u || u.rol === 'auxiliar' ? 'selected' : ''}>Auxiliar: solo digita cantidades</option>
           <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: carga el inventario, revisa y aprueba</option>
           <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: configura y carga pedidos</option></select></label>
-        <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
+        <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0099 CENTRO"></label>
         ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
     if (r.value !== 'ok') return;
@@ -2583,7 +2583,7 @@
       <div class="card pad">
         <h3 class="card-title">Datos del inventario</h3>
         <div class="grid2">
-          <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0007 RENCA"></label>
+          <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0099 CENTRO"></label>
           <label class="field">Fecha del reporte<input id="invFecha" value="${esc(d.fecha)}" placeholder="dd/mm/aaaa"></label>
         </div>
       </div>

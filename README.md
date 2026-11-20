@@ -32,7 +32,7 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 - El administrador crea usuarios desde el menú de usuario → **Usuarios**, con tres roles:
   - **Administrador:** configura el sistema (usuarios, maestro y costos), carga los pedidos que se despachan a las sucursales y reabre conteos.
   - **QF:** carga el inventario de su sucursal (reporte de inventario de SPOS en PDF), ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
-  - A cada QF y auxiliar se le asigna su **sucursal** (ej. `CL0007 RENCA`): solo ve y carga documentos de esa sucursal.
+  - A cada QF y auxiliar se le asigna su **sucursal** (ej. `CL0099 CENTRO`): solo ve y carga documentos de esa sucursal.
   - **Auxiliar:** solo digita cantidades. No ve cantidades del sistema, ni totales, ni si lo que digita coincide. Al finalizar recibe solo un "Conteo finalizado".
 - Las contraseñas nunca se guardan en texto (ver Seguridad).
 - **Con servidor**, los usuarios son los mismos en todas las tablets. **Sin servidor**, viven en cada equipo: para copiarlos a otra tablet, menú → **Exportar configuración** y, en la otra, **Importar configuración**.
@@ -123,7 +123,7 @@ Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Mate
 2. La sucursal cuenta **sin ver las cantidades del sistema**: escaneando, buscando por nombre o código de material, con filtro por categoría. Si escanea algo que no figura en el reporte, la app muestra el nombre desde el maestro y lo registra como sobrante.
 3. Al cerrar: **Contado vs Sistema** por producto (faltante, sobrante, no encontrado, no figura en sistema), con exportación a Excel (material, código de barras, categoría).
 
-Probado con el reporte de inventario real de CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
+Probado con un reporte de inventario real de una sucursal (más de 1.200 productos y 6 categorías): la gran mayoría de los productos se puede escanear con el maestro.
 
 ## Evidencia con fotos
 
