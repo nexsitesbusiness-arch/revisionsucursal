@@ -2,6 +2,11 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Prueba con Cefalmin y ajuste de la cámara
+
+- Prueba de punta a punta en el servidor con un producto Cefalmin de ejemplo (cámara en vivo, foto de DataMatrix, revisión y cierre de la QF): todo correcto.
+- **Corrección:** al escanear con la cámara abierta, la pantalla bajaba hasta el producto contado y la cámara quedaba tapada bajo la barra superior. Ahora, con la cámara abierta, la pantalla no se mueve: el producto se marca y el aviso dice cuál fue.
+
 ## 17-11-2026 · Escáner nuevo: ZXing-C++ (WebAssembly)
 
 - El escáner usa **zxing-wasm 3.1.5** (ZXing-C++) en lugar de html5-qrcode 2.3.8.

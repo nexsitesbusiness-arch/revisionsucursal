@@ -1247,7 +1247,8 @@
     // Lleva el producto a la vista
     ensureRendered(target.id);
     const li = $(`#countList li[data-id="${target.id}"]`);
-    if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
+    // Con la cámara abierta no se mueve la pantalla (si no, la cámara queda tapada); solo se marca el producto.
+    if (li) { li.classList.add('flash'); if (!scanner) li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
   }
 
   // ---------- Vencimiento leído del código (DataMatrix GS1) ----------
