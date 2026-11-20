@@ -25,9 +25,7 @@ jobs:
       - uses: actions/configure-pages@v5
       # GitHub Pages solo publica la app (sin servidor). El código PHP, SQL y pruebas no se suben.
       - name: Preparar archivos públicos
-        run: |
-          mkdir _site
-          cp -r index.html styles.css app.js gs1.js importar.js bitacora.js desplegable.js sw.js manifest.webmanifest icons vendor ejemplo-pedido.* .nojekyll _site/
+        run: bash servidor/publicar-estatico.sh
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

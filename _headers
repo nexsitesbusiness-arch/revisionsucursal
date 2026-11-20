@@ -1,0 +1,10 @@
+# Cabeceras de seguridad para Cloudflare Pages (las mismas que la versión con servidor).
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Permissions-Policy: camera=(self), microphone=(), geolocation=()
+
+/vendor/zxing/zxing_reader.wasm
+  Content-Type: application/wasm
