@@ -2,7 +2,8 @@ name: Publicar en GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # main y la rama principal actual del repositorio (GitHub Pages publica desde la rama principal).
+    branches: [main, ccr-0c4907b3-s710t3]
   workflow_dispatch:
 
 permissions:
