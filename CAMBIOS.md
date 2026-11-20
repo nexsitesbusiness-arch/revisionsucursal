@@ -2,10 +2,10 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
-## 20-11-2026 · Naproxeno (EAN 7800071763940)
+## 20-11-2026 · Naproxeno (EAN 7800007176394)
 
-- Se agrega **Naproxeno comprimidos** (EAN 7800071763940) al ejemplo de la app (maestro, inventario con 15 en el sistema y pedido con lote NX2501), a las planillas de `ejemplos/`, a la hoja de códigos para imprimir y a la página de prueba de cámara (que ahora cuenta cada producto por separado y muestra cualquier otro código leído).
-  - *Ojo:* el código entregado tenía 12 dígitos (780007176394); se completó con el dígito verificador calculado (0). Confirmar con la caja real.
+- Se agrega **Naproxeno comprimidos** (EAN 7800007176394) al ejemplo de la app (maestro, inventario con 15 en el sistema y pedido con lote NX2501), a las planillas de `ejemplos/`, a la hoja de códigos para imprimir y a la página de prueba de cámara (que ahora cuenta cada producto por separado y muestra cualquier otro código leído).
+  - Código confirmado con la **cámara del teléfono sobre una caja real**: **7800007176394** (el entregado a mano tenía 12 dígitos; faltaba un 0 en el medio).
 
 ## 20-11-2026 · Página de prueba de cámara (Cefalmin)
 

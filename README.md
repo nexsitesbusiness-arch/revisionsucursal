@@ -50,7 +50,7 @@ Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidad
 
 ## Planillas de ejemplo (`ejemplos/`)
 
-Para probar sin datos reales. Cefalmin (**7800038041210**) y Naproxeno (**7800071763940**) usan sus códigos reales; los demás productos son ficticios (EAN válidos).
+Para probar sin datos reales. Cefalmin (**7800038041210**) y Naproxeno (**7800007176394**) usan sus códigos reales; los demás productos son ficticios (EAN válidos).
 
 | Archivo | Para qué |
 |---|---|
