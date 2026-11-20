@@ -2,6 +2,10 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Botón "Cargar ejemplo con Cefalmin"
+
+- En la app real, con la lista vacía, el administrador puede cargar con un toque el maestro con costos, un inventario de CL0099 CENTRO y un pedido de ejemplo (Cefalmin con EAN real). Funciona con y sin servidor.
+
 ## 20-11-2026 · Limpieza antes de hacer público el repositorio
 
 - Se reemplazaron las menciones a sucursales reales y a códigos de productos reales (en ejemplos de texto, pruebas y README) por datos ficticios (CL0099 CENTRO, etc.).
