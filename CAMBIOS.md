@@ -2,6 +2,13 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Tiempo del conteo más claro
+
+- La tarjeta **Tiempo del conteo** del reporte muestra: horario (con fecha), tiempo total, tiempo **contando** con el % del total, tiempo **en pausa** con cuántas pausas, y el **ritmo** (registros por minuto contando).
+- La barra muestra tramos y pausas proporcionales al tiempo, con su duración escrita y la hora de inicio y fin.
+- Debajo, una lista en orden con cada tramo y cada pausa (horario, duración, registros y quién), y se marca **la pausa más larga**.
+- En el celular, la barra queda sin textos (no caben) y la lista se apila.
+
 ## 20-11-2026 · Corrección: costos con separador de miles
 
 - Un Excel con costos con formato de moneda (por ejemplo "$ 3,990") se leía como **3,99** en vez de 3.990, y el reporte mostraba montos mil veces menores. Ahora un número con un solo separador seguido de exactamente 3 dígitos ("3.990", "3,990") o con separadores repetidos ("1.250.000") se lee como miles; "2,5" y "3.99" siguen siendo decimales.

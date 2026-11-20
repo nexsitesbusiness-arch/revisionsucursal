@@ -1681,25 +1681,38 @@
     const tc = tiempoConteo(o);
     if (!tc) return '';
     const span = Math.max(tc.total, 1);
-    const pos = (ts) => ((ts - tc.ini) / span) * 100;
+    const pct = (ms) => (ms / span) * 100;
     const pausaTot = tc.pausas.reduce((s, x) => s + x, 0);
-    const pasos = [];
+    const regs = tc.tramos.reduce((s, x) => s + (x.n || 0), 0);
+    const ritmo = tc.activo >= 60000 ? regs / (tc.activo / 60000) : null;
+    const maxPausa = tc.pausas.length ? Math.max(...tc.pausas) : 0;
+    // Segmentos de la barra: tramo (contando) y pausa, en orden y proporcionales al tiempo.
+    const seg = [];
+    const filas = [];
     tc.tramos.forEach((x, i) => {
-      if (i) pasos.push(`<li class="tl-pausa">${ic('clock')} Pausa de ${fmtDur(tc.pausas[i - 1])}</li>`);
-      pasos.push(`<li><b>Tramo ${i + 1}</b> · ${hhmm(x.ini)}–${hhmm(x.fin)} · ${fmtDur(x.fin - x.ini)} <span class="muted">· ${(x.n || 0).toLocaleString('es-CL')} registros${x.por ? ' · ' + esc(x.por) : ''}</span></li>`);
+      if (i) {
+        const d = tc.pausas[i - 1], larga = tc.pausas.length > 1 && d === maxPausa;
+        seg.push(`<span class="tl-seg pausa" style="flex-grow:${pct(d)}" title="Pausa de ${fmtDur(d)}">${pct(d) >= 9 ? `Pausa ${fmtDur(d)}` : ''}</span>`);
+        filas.push(`<li class="tl-row pausa"><i></i><b>Pausa</b><span>${hhmm(tc.tramos[i - 1].fin)}–${hhmm(x.ini)}</span><span class="dur">${fmtDur(d)}</span><span class="muted">sin registros${larga ? ' · <em>la más larga</em>' : ''}</span></li>`);
+      }
+      const d = x.fin - x.ini;
+      seg.push(`<span class="tl-seg" style="flex-grow:${Math.max(pct(d), 1.2)}" title="Tramo ${i + 1}: ${fmtDur(d)}">${pct(d) >= 5 ? fmtDur(d) : ''}</span>`);
+      filas.push(`<li class="tl-row"><i></i><b>Tramo ${i + 1}</b><span>${hhmm(x.ini)}–${hhmm(x.fin)}</span><span class="dur">${fmtDur(d)}</span><span class="muted">${(x.n || 0).toLocaleString('es-CL')} registros${x.por ? ' · ' + esc(x.por) : ''}</span></li>`);
     });
+    const pctActivo = tc.total > 0 ? Math.round((tc.activo / tc.total) * 100) : 100;
     return `<div class="card pad tiempo">
       <div class="tiempo-head"><h3 class="card-title">${ic('clock')} Tiempo del conteo</h3>
-        <span class="muted small">Se considera pausa cuando pasan más de ${PAUSA_MIN} minutos sin registrar nada.</span></div>
+        <span class="muted small">Es pausa cuando pasan más de ${PAUSA_MIN} min sin registrar nada.</span></div>
       <div class="tiempo-kpis">
-        <div><span>Inicio</span><b>${hhmm(tc.ini)}</b></div>
-        <div><span>Fin</span><b>${hhmm(tc.fin)}</b></div>
-        <div><span>Tiempo total</span><b>${fmtDur(tc.total)}</b></div>
-        <div><span>Contando</span><b>${fmtDur(tc.activo)}</b></div>
-        <div><span>Pausas</span><b>${tc.pausas.length}${tc.pausas.length ? ` <small>(${fmtDur(pausaTot)})</small>` : ''}</b></div>
+        <div><span>Horario</span><b>${hhmm(tc.ini)}–${hhmm(tc.fin)}</b><small>${fmtDate(tc.ini).slice(0, 10)}</small></div>
+        <div><span>Tiempo total</span><b>${fmtDur(tc.total)}</b><small>de principio a fin</small></div>
+        <div class="ok"><span>Contando</span><b>${fmtDur(tc.activo)}</b><small>${pctActivo} % del tiempo total</small></div>
+        <div class="${tc.pausas.length ? 'warn' : ''}"><span>En pausa</span><b>${tc.pausas.length ? fmtDur(pausaTot) : '0 min'}</b><small>${tc.pausas.length ? `${tc.pausas.length} ${tc.pausas.length === 1 ? 'pausa' : 'pausas'}` : 'sin pausas'}</small></div>
+        <div><span>Ritmo</span><b>${ritmo === null ? '—' : ritmo.toLocaleString('es-CL', { maximumFractionDigits: ritmo < 10 ? 1 : 0 })}</b><small>registros por minuto contando</small></div>
       </div>
-      <div class="timeline" aria-hidden="true">${tc.tramos.map((x) => `<span style="left:${pos(x.ini)}%;width:${Math.max(0.8, pos(x.fin) - pos(x.ini))}%"></span>`).join('')}</div>
-      <ol class="tl-list">${pasos.join('')}</ol>
+      <div class="tl-bar" aria-hidden="true">${seg.join('')}</div>
+      <div class="tl-axis" aria-hidden="true"><span>${hhmm(tc.ini)}</span><span>${hhmm(tc.fin)}</span></div>
+      <ol class="tl-rows">${filas.join('')}</ol>
     </div>`;
   }
 
