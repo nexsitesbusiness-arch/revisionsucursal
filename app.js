@@ -324,7 +324,7 @@
 
     const list = $('#orderList');
     if (!db.orders.length) {
-      list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre' : 'Abre'} el enlace o archivo que te enviaron.
+      list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre el enlace o archivo que te enviaron.' : isStaff() ? 'Para tomar inventario, descarga de SPOS el reporte de inventario en PDF y usa <b>Nuevo inventario</b>.' : 'Cuando la QF cargue un inventario o llegue un pedido, aparecerá aquí.'}
         ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
       if ($('#btnDemo')) $('#btnDemo').onclick = async () => {
         let o = createDemo();
@@ -656,7 +656,7 @@
     show('order', current.nombre);
     audit(`Abrió ${T(current).doc}`, { detalle: current.finishedAt ? 'finalizado' : 'abierto' });
     $('#orderTitle').textContent = current.nombre;
-    $('#orderMeta').textContent = `${T(current).Doc}${current.sucursal ? ' · ' + current.sucursal : ''}${current.fechaSistema ? ' · existencias al ' + current.fechaSistema : ''} · ${current.items.length} productos`;
+    $('#orderMeta').textContent = `${T(current).Doc}${current.sucursal ? ' · ' + current.sucursal : ''}${current.fechaSistema ? ' · reporte al ' + current.fechaSistema : ''} · ${current.items.length} productos`;
     $('#shareWhat').textContent = current.tipo === 'inventario' ? 'del sistema' : 'enviadas';
     const x = orderStatus(current);
     $('#orderProgress').textContent = current.finishedAt ? `Finalizado ${fmtDate(current.finishedAt)}${current.contadoPor ? ' · contó ' + current.contadoPor : ''}${current.verifiedAt ? ' · aprobado por ' + (current.verifiedBy || 'QF') : isStaff() ? ' · por verificar' : ' · en revisión del QF'}`
@@ -665,6 +665,20 @@
     $('#btnStartCount').innerHTML = ic('scan') + (current.finishedAt ? (isStaff() ? ' Reabrir conteo' : ' Conteo finalizado') : x.counted ? ' Seguir contando' : ' ' + T(current).contar);
     $('#btnShowResults').innerHTML = ic('chart') + (current.tipo === 'inventario' ? ' Reporte de desviaciones' : ' Ver diferencias');
     $('#shareInfo').textContent = '';
+    // Eliminar: el administrador siempre; la QF, un inventario mal cargado mientras nadie ha contado.
+    $('#dangerZone').hidden = !canDeleteDoc(current);
+    $('#btnDeleteOrder').innerHTML = ic('trash') + ' Eliminar ' + T(current).doc;
+  }
+  function canDeleteDoc(o) {
+    if (isAdmin()) return true;
+    return role() === 'qf' && o.tipo === 'inventario' && !o.finishedAt && !Object.keys(o.counts || {}).length && !(o.extras || []).length;
+  }
+  // Misma sucursal: compara el código (ej. CL0007) si ambos lo traen; si no, el texto completo.
+  function sameBranch(a, b) {
+    const n = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const code = (s) => (n(s).match(/\b[a-z]{2}\d{3,}\b/) || [])[0];
+    if (!n(a) || !n(b)) return true;
+    return code(a) && code(b) ? code(a) === code(b) : n(a) === n(b);
   }
 
   // El pedido viaja comprimido, así las cantidades no quedan a la vista.
@@ -884,7 +898,7 @@
     }
     show('count', current.nombre);
     audit('Abrió conteo');
-    $('#countKicker').textContent = [current.sucursal, current.tipo === 'inventario' && current.fechaSistema ? 'existencias al ' + current.fechaSistema : current.nombre].filter(Boolean).join(' · ');
+    $('#countKicker').textContent = [current.sucursal, current.tipo === 'inventario' && current.fechaSistema ? 'reporte al ' + current.fechaSistema : current.nombre].filter(Boolean).join(' · ');
     $('#countTitle').textContent = current.tipo === 'inventario' ? 'Conteo del inventario' : 'Conteo del pedido';
     $('#search').value = '';
     const cats = [...new Set(current.items.map((i) => i.categoria).filter(Boolean))].sort();
@@ -948,9 +962,10 @@
       i.codigo && `<span class="mono">${esc(i.codigo)}</span>`,
       i.lote && `Lote <b class="mono">${esc(i.lote)}</b>`,
       i.categoria && `<span class="opt">${esc(i.categoria)}</span>`,
-      i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(i.vencimiento)}</span>`),
-      (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
-      i.precio ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
+      isStaff() && i.vencimiento && (daysTo(i.vencimiento) !== null && daysTo(i.vencimiento) <= VENC_DIAS ? `<b class="venc-soon">Vence ${esc(fmtDay(i.vencimiento))}</b>` : `<span class="opt">Vence ${esc(fmtDay(i.vencimiento))}</span>`),
+      isStaff() && (current.venc || {})[i.id] && `<b class="venc-soon">Leído: vence ${esc(fmtDay(current.venc[i.id]))}</b>`,
+      // El auxiliar cuenta a ciegas: nunca ve costos.
+      i.precio && isStaff() ? `<span class="opt">$ ${fmtMoney(i.precio)}</span>` : '',
     ].filter(Boolean).join('<span class="dot"> · </span>');
     return `<li class="item ${n ? 'done' : ''}" data-id="${i.id}">
       <span class="st">${ic('check')}</span>
@@ -981,6 +996,28 @@
     if (document.activeElement !== input) input.value = n || '';
   }
 
+  // ---------- Tramos de conteo y pausas ----------
+  // Cada registro extiende el tramo actual. Si pasan más de PAUSA_MIN minutos sin registrar nada,
+  // lo siguiente abre un tramo nuevo: la diferencia entre tramos es una pausa.
+  const PAUSA_MIN = 5;
+  function markActivity() {
+    if (!current || current.finishedAt) return;
+    const now = Date.now();
+    const t = current.tramos || (current.tramos = []);
+    const last = t[t.length - 1];
+    if (last && now - last.fin <= PAUSA_MIN * 60000) { last.fin = now; last.n = (last.n || 0) + 1; return; }
+    if (last) audit('Retomó el conteo tras una pausa', { detalle: `pausa de ${fmtDur(now - last.fin)} · tramo ${t.length + 1}` });
+    t.push({ ini: now, fin: now, n: 1, por: me ? me.nombre : '' });
+  }
+  function tiempoConteo(o) {
+    const t = (o.tramos || []).filter((x) => x && x.ini);
+    if (!t.length) return null;
+    const ini = t[0].ini, fin = Math.max(t[t.length - 1].fin, o.finishedAt || 0);
+    const activo = t.reduce((s, x) => s + (x.fin - x.ini), 0);
+    const pausas = t.slice(1).map((x, i) => x.ini - t[i].fin);
+    return { ini, fin, total: fin - ini, activo, pausas, tramos: t };
+  }
+
   function setCount(item, n, { log = true } = {}) {
     n = Math.max(0, Math.round(n));
     const prev = qty(item);
@@ -992,6 +1029,7 @@
     }
     current.startedAt = current.startedAt || Date.now();
     if (current.log.length > 300) current.log.shift();
+    markActivity();
     save();
     updateItemRow(item);
     renderProgress();
@@ -1045,6 +1083,7 @@
     current.log.push({ t: 'e', id: ex.id, prev: ex.cantidad });
     current.startedAt = current.startedAt || Date.now();
     ex.cantidad += amount;
+    markActivity();
     audit('Agregó producto fuera de la lista', { producto: ex.producto, sku: ex.sku || ex.codigo || null, detalle: `${ex.cantidad - amount} → ${ex.cantidad}${ex.lote ? ' · lote ' + ex.lote : ''}` });
     save();
     renderExtras();
@@ -1059,7 +1098,7 @@
       <div class="card"><ul class="items">${current.extras.map((x) => `<li class="item extra" data-xid="${x.id}">
         <span class="st">${ic('alert')}</span>
         <div class="info"><div class="name">${esc(x.producto)}</div>
-          <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
+          <div class="meta">${[x.codigo && `<span class="mono">${esc(x.codigo)}</span>`, x.lote && `Lote <b class="mono">${esc(x.lote)}</b>`, isStaff() && esc(x.motivo)].filter(Boolean).join(' · ')}</div></div>
         ${evButton(current, x.id, 'data-xact')}
         <div class="stepper">
           <button class="step" data-xact="dec" aria-label="Restar">${ic('minus')}</button>
@@ -1075,6 +1114,7 @@
     ex.cantidad = Math.max(0, Math.round(fn(ex.cantidad)));
     audit('Cambió cantidad de producto agregado', { producto: ex.producto, sku: ex.sku || ex.codigo || null, detalle: `${antes} → ${ex.cantidad}` });
     if (!ex.cantidad) current.extras = current.extras.filter((x) => x !== ex);
+    markActivity();
     save(); renderExtras(); renderProgress();
   }
   $('#extrasBox').addEventListener('click', (e) => {
@@ -1165,6 +1205,8 @@
     if (scannedLote) {
       // El código trae lote (DataMatrix GS1): verificamos contra el pedido.
       target = matches.find((i) => normLote(i.lote) === normLote(scannedLote));
+      // Inventarios (y pedidos sin lote): si el producto no tiene lote cargado, se cuenta igual.
+      if (!target) { const sinLote = matches.filter((i) => !i.lote); if (sinLote.length === 1) target = sinLote[0]; }
       if (!target) {
         const expected = matches.map((i) => i.lote || 'sin lote').join(', ');
         addExtra({ codigo: matches[0].codigo, producto: matches[0].producto, lote: scannedLote, motivo: 'Lote distinto al enviado' }, amount);
@@ -1199,13 +1241,14 @@
 
     setCount(target, qty(target) + amount);
     beep(true);
-    const loteOk = scannedLote ? ' · lote verificado' : '';
+    const loteOk = scannedLote && target.lote ? ' · lote verificado' : '';
     flash(`${ic('check')}<span>${esc(target.producto)}${target.lote ? ' · ' + esc(target.lote) : ''}${loteOk} — contados <b>${qty(target)}</b></span>`, 'ok');
     if (gs1 && gs1.vencimiento) checkExpiry(target, gs1.vencimiento);
     // Lleva el producto a la vista
     ensureRendered(target.id);
     const li = $(`#countList li[data-id="${target.id}"]`);
-    if (li) { li.classList.add('flash'); li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
+    // Con la cámara abierta no se mueve la pantalla (si no, la cámara queda tapada); solo se marca el producto.
+    if (li) { li.classList.add('flash'); if (!scanner) li.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => li.classList.remove('flash'), 1200); }
   }
 
   // ---------- Vencimiento leído del código (DataMatrix GS1) ----------
@@ -1223,6 +1266,11 @@
       const prev = current.venc[item.id];
       // Se guarda la fecha más próxima leída para ese producto.
       if (!prev || fecha < prev) { current.venc[item.id] = fecha; save(); }
+      // El vencimiento lo audita la QF: al auxiliar no se le avisa, solo queda guardado.
+      if (!isStaff()) {
+        audit(dias < 0 ? 'Escaneó producto vencido' : 'Escaneó producto por vencer', { producto: item.producto, sku: item.sku || item.codigo || null, detalle: `vence ${fmtDay(fecha)}` });
+        return;
+      }
       if (dias < 0) {
         beep(false);
         flash(`${ic('alert')}<span><b>Producto vencido</b> · ${esc(item.producto)}<br>Venció el ${fmtDay(fecha)}. Sepáralo y regístralo con una foto.</span>`, 'err');
@@ -1250,57 +1298,136 @@
     }
   });
 
-  // ---------- Cámara ----------
+  // ---------- Cámara: lector ZXing-C++ (WebAssembly) incluido en vendor/zxing ----------
+  // Lee EAN/UPC, Code 128/39/93, ITF, Codabar, GS1 DataBar, DataMatrix y QR en cualquier navegador
+  // (también iPhone/iPad, que no traen lector propio) y funciona sin internet.
+  const ZX_OPTS = { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'Code93', 'ITF', 'Codabar', 'DataBar', 'DataBarExp', 'DataMatrix', 'QRCode'],
+    tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1, textMode: 'Plain' };
+  let zxReady = null;
+  function loadZXing() {
+    if (zxReady) return zxReady;
+    zxReady = new Promise((resolve, reject) => {
+      const init = () => {
+        try {
+          ZXingWASM.prepareZXingModule({
+            overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? new URL('vendor/zxing/' + path, location.href).href : prefix + path) },
+            fireImmediately: true,
+          }).then(resolve, reject);
+        } catch (e) { reject(e); }
+      };
+      if (window.ZXingWASM) return init();
+      const sc = document.createElement('script');
+      sc.src = 'vendor/zxing/zxing-reader.js';
+      sc.onload = init;
+      sc.onerror = () => reject(new Error('No se pudo cargar el lector de códigos.'));
+      document.head.appendChild(sc);
+    }).catch((e) => { zxReady = null; throw e; });
+    return zxReady;
+  }
+  async function decodeImage(src) {
+    await loadZXing();
+    const res = await ZXingWASM.readBarcodes(src, ZX_OPTS);
+    const ok = res.find((r) => r.isValid && r.text);
+    return ok ? { text: ok.text, formato: ok.format } : null;
+  }
+  // Para pruebas y diagnóstico.
+  window.__zx = { decodeImage, loadZXing };
+
   let scanner = null, lastCode = '', lastTime = 0;
   $('#btnScan').onclick = () => (scanner ? stopScanner() : startScanner());
   $('#btnStopScan').onclick = () => stopScanner();
 
+  // Un código cuenta una sola vez mientras siga a la vista: para sumar otra caja igual,
+  // hay que sacarlo del recuadro (1 segundo sin verlo) y volver a mostrarlo.
+  function onDecoded(text) {
+    const now = Date.now();
+    const same = text === lastCode && now - lastTime < 1000;
+    lastCode = text; lastTime = now;
+    if (!same) handleCode(text);
+  }
+
   async function startScanner() {
-    if (!window.Html5Qrcode) return alert('No se pudo cargar el lector. Revisa tu conexión a internet.');
     $('#scanner').hidden = false;
     $('#btnScan').innerHTML = ic('x') + ' Cerrar';
-    const F = Html5QrcodeSupportedFormats;
-    scanner = new Html5Qrcode('reader', {
-      verbose: false,
-      useBarCodeDetectorIfSupported: true,
-      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE],
-    });
+    $('#scanStatus').textContent = 'Abriendo la cámara…';
+    const st = { stream: null, video: null, canvas: document.createElement('canvas'), paused: false, timer: 0, busy: false, track: null };
+    scanner = st;
     try {
-      await scanner.start({ facingMode: 'environment' },
-        { fps: 12, qrbox: (w, h) => ({ width: Math.min(w * 0.85, 360), height: Math.min(h * 0.55, 220) }), aspectRatio: 1.333 },
-        (text) => {
-          const now = Date.now();
-          if (text === lastCode && now - lastTime < 1500) return; // evita contar dos veces el mismo
-          lastCode = text; lastTime = now;
-          handleCode(text);
-        }, () => {});
-      try {
-        const caps = scanner.getRunningTrackCapabilities();
-        $('#btnTorch').hidden = !caps.torch;
-      } catch (e) { /* sin linterna */ }
-      $('#scanStatus').textContent = 'Apunta al código de barras o DataMatrix…';
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Este navegador no permite usar la cámara aquí (la página debe abrirse con https).');
+      const [stream] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }),
+        loadZXing(),
+      ]);
+      if (scanner !== st) { stream.getTracks().forEach((t) => t.stop()); return; }
+      st.stream = stream;
+      st.track = stream.getVideoTracks()[0];
+      try { await st.track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* sin enfoque continuo */ }
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', ''); v.muted = true; v.srcObject = stream;
+      $('#reader').innerHTML = '<div class="reader-frame"><span></span></div>';
+      $('#reader').prepend(v);
+      st.video = v;
+      await v.play();
+      try { $('#btnTorch').hidden = !(st.track.getCapabilities && st.track.getCapabilities().torch); } catch (e) { $('#btnTorch').hidden = true; }
+      $('#scanStatus').textContent = 'Apunta al código de barras o DataMatrix dentro del recuadro…';
+      const loop = async () => {
+        if (scanner !== st) return;
+        if (!st.paused && !st.busy && v.readyState >= 2 && v.videoWidth) {
+          st.busy = true;
+          try {
+            // Se lee la zona del recuadro (80 % del ancho, 60 % del alto), reducida a 1280 px como máximo.
+            const vw = v.videoWidth, vh = v.videoHeight;
+            const cw = Math.round(vw * 0.8), ch = Math.round(vh * 0.6);
+            const k = Math.min(1, 1280 / cw);
+            st.canvas.width = Math.round(cw * k); st.canvas.height = Math.round(ch * k);
+            const ctx = st.canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(v, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, st.canvas.width, st.canvas.height);
+            const r = await decodeImage(ctx.getImageData(0, 0, st.canvas.width, st.canvas.height));
+            if (r && scanner === st) onDecoded(r.text);
+          } catch (e) { /* cuadro ilegible */ }
+          st.busy = false;
+        }
+        st.timer = setTimeout(loop, 90);
+      };
+      loop();
     } catch (err) {
-      stopScanner();
-      alert('No se pudo abrir la cámara. Da permiso de cámara al navegador (la página debe abrirse con https).\n\n' + err);
+      await stopScanner();
+      const r = await ask({ title: 'No se pudo abrir la cámara',
+        html: `<p>${esc(err.message || String(err))}</p><p class="small muted">Revisa que el navegador tenga permiso de cámara. Mientras tanto, puedes <b>leer el código desde una foto</b> o escribirlo en el buscador.</p>`,
+        buttons: [{ label: 'Cerrar', value: '' }, { label: 'Leer desde foto', value: 'foto', cls: 'primary' }] });
+      if (r.value === 'foto') $('#fileScanPhoto').click();
     }
   }
   let torchOn = false;
   $('#btnTorch').onclick = async () => {
-    try { torchOn = !torchOn; await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* no soportado */ }
+    try { torchOn = !torchOn; await scanner.track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { /* no soportado */ }
   };
-  function pauseScanner(p) {
-    if (!scanner) return;
-    try { p ? scanner.pause(true) : scanner.resume(); } catch (e) { /* estado no válido */ }
-  }
+  function pauseScanner(p) { if (scanner) scanner.paused = !!p; }
   async function stopScanner() {
     if (!scanner) return;
     const s = scanner;
     scanner = null;
-    try { await s.stop(); s.clear(); } catch (e) { /* ya detenido */ }
+    clearTimeout(s.timer);
+    try { if (s.stream) s.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* ya detenido */ }
+    $('#reader').innerHTML = '';
     $('#scanner').hidden = true;
     $('#btnScan').innerHTML = ic('scan') + ' Escanear';
+    $('#btnTorch').hidden = true;
     torchOn = false;
   }
+  // Leer el código desde una foto (si la cámara en vivo no está disponible o el código cuesta).
+  $('#fileScanPhoto').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    flash(`<span>Leyendo el código de la foto…</span>`, 'info');
+    try {
+      const r = await decodeImage(f);
+      if (!r) { beep(false); return flash(`${ic('alert')}<span>No se encontró un código en la foto. Acércate, enfoca y que el código quede derecho y con buena luz.</span>`, 'err'); }
+      audit('Leyó código desde foto', { detalle: r.formato });
+      handleCode(r.text);
+    } catch (err) { flash(`${ic('alert')}<span>${esc(err.message || 'No se pudo leer la foto.')}</span>`, 'err'); }
+  };
 
   // =========================================================
   // RESULTADOS
@@ -1316,9 +1443,13 @@
           <p class="small muted">${isStaff() ? 'Al ver las diferencias el conteo queda cerrado.' : 'Al finalizar ya no podrás cambiar las cantidades. El QF revisará el conteo.'}</p>`,
         buttons: [{ label: 'Seguir contando', value: '' }, { label: isStaff() ? 'Sí, ver diferencias' : 'Sí, finalizar', value: 'ok', cls: 'primary' }] });
       if (r.value !== 'ok') return;
-      current.finishedAt = Date.now();
+      const ahora = Date.now();
+      const ult = (current.tramos || [])[(current.tramos || []).length - 1];
+      if (ult && ahora - ult.fin <= PAUSA_MIN * 60000) ult.fin = ahora;
+      current.finishedAt = ahora;
       current.contadoPor = (r.fields.por || '').trim();
-      audit('Finalizó conteo', { detalle: `${current.items.filter((i) => qty(i) > 0).length} productos con cantidad · ${current.items.filter((i) => !qty(i)).length} sin contar · ${current.extras.length} agregados` });
+      const tc = tiempoConteo(current);
+      audit('Finalizó conteo', { detalle: `${current.items.filter((i) => qty(i) > 0).length} productos con cantidad · ${current.items.filter((i) => !qty(i)).length} sin contar · ${current.extras.length} agregados${tc ? ` · total ${fmtDur(tc.total)}, contando ${fmtDur(tc.activo)}, ${tc.pausas.length} pausa(s)` : ''}`, duracionSeg: tc ? Math.round(tc.total / 1000) : null });
       try { localStorage.setItem('revision-responsable', current.contadoPor); } catch (e) { /* sin almacenamiento */ }
       save();
     }
@@ -1336,7 +1467,7 @@
   function lastPerson() {
     try { return localStorage.getItem('revision-responsable') || ''; } catch (e) { return ''; }
   }
-  const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  const fmtDur = (ms) => { const m = Math.round(ms / 60000); return m < 1 ? 'menos de 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
 
   // Costo unitario: el del pedido o, si no tiene, el del maestro / lista de precios.
   function priceFor(sku, ean) {
@@ -1406,6 +1537,12 @@
     $('#abcFilter').value = '';
     $('#reportSearch').value = '';
     audit('Abrió reporte de desviaciones');
+    // Hito del proceso: la primera vez que el QF abre el reporte de un conteo terminado.
+    if (current.finishedAt && !current.revisionIni && !current.verifiedAt && role() === 'qf') {
+      current.revisionIni = Date.now();
+      audit('Inició la revisión del conteo');
+      save();
+    }
     renderSummary();
     renderResultsTable();
   }
@@ -1431,7 +1568,7 @@
     $('#summary').innerHTML = `
       <div class="page-head">
         <div>
-          <span class="kicker">${t.Doc} · ${esc(current.sucursal || 'Sucursal')}${current.fechaSistema ? ' · existencias al ' + esc(current.fechaSistema) : ''} · finalizado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''} · ${dur}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
+          <span class="kicker">${t.Doc} · ${esc(current.sucursal || 'Sucursal')}${current.fechaSistema ? ' · reporte al ' + esc(current.fechaSistema) : ''} · finalizado ${current.finishedAt ? fmtDate(current.finishedAt) : ''}${current.contadoPor ? ' · contó ' + esc(current.contadoPor) : ''} · ${dur}${current.reopened ? ` · reabierto ${current.reopened}×` : ''}</span>
           <h2 class="page-title">Reporte de desviaciones</h2>
         </div>
         ${current.verifiedAt ? `<span class="pill ok big-pill">${ic('check')} Aprobado por ${esc(current.verifiedBy || 'QF')} · ${fmtDate(current.verifiedAt)}</span>` : ''}
@@ -1443,9 +1580,80 @@
         <div class="kpi ${uSobr ? 'warn' : ''}"><div class="l">Sobran</div><div class="v">${byValue ? money(vSobr) : uSobr.toLocaleString('es-CL')}</div><div class="s">${uSobr.toLocaleString('es-CL')} unid. · ${prod(sobr.length)}</div></div>
         <div class="kpi"><div class="l">Desviaciones ABC</div><div class="v abc-v"><span class="abc A">A ${nA.length}</span><span class="abc B">B ${nB.length}</span><span class="abc C">C ${nC.length}</span></div><div class="s">${byValue ? 'por valor' : 'por unidades'} · A = 80 % del total</div></div>
         <div class="kpi ${vPct === 100 ? 'ok' : ''}"><div class="l">Revisión QF</div><div class="v">${done.toLocaleString('es-CL')} / ${req.length.toLocaleString('es-CL')}</div><div class="s">Clase A: ${doneA} de ${nA.length}${samp.length ? ` · aleatorias: ${samp.filter((r) => r.review).length} de ${samp.length}` : ''}</div><div class="meter"><span style="width:${vPct}%"></span></div></div>
-      </div>`;
+      </div>
+      ${procesoHtml(current)}
+      ${tiempoHtml(current)}`;
     $('#btnApprove').hidden = !!current.verifiedAt;
     $('#btnRandom').hidden = !!current.verifiedAt;
+  }
+
+  // Tiempo del conteo: total, tiempo contando, pausas y cada tramo en una línea de tiempo.
+  const hhmm = (ts) => new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ts);
+  function tiempoHtml(o) {
+    const tc = tiempoConteo(o);
+    if (!tc) return '';
+    const span = Math.max(tc.total, 1);
+    const pos = (ts) => ((ts - tc.ini) / span) * 100;
+    const pausaTot = tc.pausas.reduce((s, x) => s + x, 0);
+    const pasos = [];
+    tc.tramos.forEach((x, i) => {
+      if (i) pasos.push(`<li class="tl-pausa">${ic('clock')} Pausa de ${fmtDur(tc.pausas[i - 1])}</li>`);
+      pasos.push(`<li><b>Tramo ${i + 1}</b> · ${hhmm(x.ini)}–${hhmm(x.fin)} · ${fmtDur(x.fin - x.ini)} <span class="muted">· ${(x.n || 0).toLocaleString('es-CL')} registros${x.por ? ' · ' + esc(x.por) : ''}</span></li>`);
+    });
+    return `<div class="card pad tiempo">
+      <div class="tiempo-head"><h3 class="card-title">${ic('clock')} Tiempo del conteo</h3>
+        <span class="muted small">Se considera pausa cuando pasan más de ${PAUSA_MIN} minutos sin registrar nada.</span></div>
+      <div class="tiempo-kpis">
+        <div><span>Inicio</span><b>${hhmm(tc.ini)}</b></div>
+        <div><span>Fin</span><b>${hhmm(tc.fin)}</b></div>
+        <div><span>Tiempo total</span><b>${fmtDur(tc.total)}</b></div>
+        <div><span>Contando</span><b>${fmtDur(tc.activo)}</b></div>
+        <div><span>Pausas</span><b>${tc.pausas.length}${tc.pausas.length ? ` <small>(${fmtDur(pausaTot)})</small>` : ''}</b></div>
+      </div>
+      <div class="timeline" aria-hidden="true">${tc.tramos.map((x) => `<span style="left:${pos(x.ini)}%;width:${Math.max(0.8, pos(x.fin) - pos(x.ini))}%"></span>`).join('')}</div>
+      <ol class="tl-list">${pasos.join('')}</ol>
+    </div>`;
+  }
+
+  // Tiempos del proceso completo: carga → conteo → revisión del QF → aprobación.
+  function tiemposProceso(o) {
+    const tc = tiempoConteo(o);
+    const h = {
+      cargado: o.creado || null,
+      inicio: tc ? tc.ini : (o.startedAt || null),
+      fin: o.finishedAt || null,
+      revision: o.revisionIni || (o.verifiedAt ? o.finishedAt : null),
+      aprobado: o.verifiedAt || null,
+    };
+    const d = (a, b) => (a && b && b >= a ? b - a : null);
+    return { h, espera: d(h.cargado, h.inicio), conteo: d(h.inicio, h.fin), esperaRev: d(h.fin, h.revision),
+      revision: d(h.revision, h.aprobado), total: d(h.cargado, h.aprobado) };
+  }
+  function procesoHtml(o) {
+    const p = tiemposProceso(o);
+    if (!p.h.cargado) return '';
+    const dia = (ts) => new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit' }).format(ts).replace('/', '-');
+    const hora = (ts) => ts ? (dia(ts) === dia(p.h.cargado) ? hhmm(ts) : `${dia(ts)} ${hhmm(ts)}`) : '';
+    const hitos = [[o.tipo === 'inventario' ? 'PDF cargado' : 'Pedido cargado', p.h.cargado], ['Inicio del conteo', p.h.inicio], ['Fin del conteo', p.h.fin], ['Inicio revisión QF', p.h.revision], ['Aprobado', p.h.aprobado]];
+    const tramos = [['Espera antes de contar', p.espera], ['Conteo', p.conteo], ['Espera de revisión', p.esperaRev], ['Revisión del QF', p.revision]];
+    const vivo = (i) => hitos[i][1] && !hitos[i + 1][1];
+    const total = p.total !== null ? fmtDur(p.total) : `${fmtDur(Date.now() - p.h.cargado)} hasta ahora`;
+    const cierre = `<div class="cierre">
+        <div><span>Inicio del ${esc(T(o).doc)}</span><b>${p.h.inicio ? fmtDate(p.h.inicio) : 'Aún no se empieza a contar'}</b></div>
+        <div><span>Término</span><b>${p.h.aprobado ? fmtDate(p.h.aprobado) : p.h.fin ? 'En revisión del QF' : 'En curso'}</b></div>
+        <div><span>Cerrado por</span><b>${o.verifiedBy ? esc(o.verifiedBy) : '—'}</b></div>
+      </div>
+      ${o.obsCierre ? `<div class="obs-cierre"><span>Observación general del cierre</span><p>${esc(o.obsCierre)}</p></div>` : ''}`;
+    return `<div class="card pad proceso">
+      ${cierre}
+      <div class="tiempo-head"><h3 class="card-title">${ic('history')} Tiempos del proceso</h3>
+        <span class="proceso-total">Total: <b>${total}</b></span></div>
+      <ol class="proceso-line">${hitos.map(([n, ts], i) => `
+        <li class="hito ${ts ? 'ok' : ''}"><span class="dot"></span><b>${n}</b><span class="muted">${ts ? hora(ts) : 'pendiente'}</span></li>
+        ${i < tramos.length ? `<li class="tramo ${tramos[i][1] !== null ? '' : vivo(i) ? 'vivo' : 'nada'}"><span>${tramos[i][0]}</span><b>${tramos[i][1] !== null ? fmtDur(tramos[i][1]) : vivo(i) ? 'en curso' : '—'}</b></li>` : ''}`).join('')}
+      </ol>
+      ${o.reopened ? `<p class="small muted" style="margin:0">El conteo se reabrió ${o.reopened} vez(es): las horas son las del último cierre.</p>` : ''}
+    </div>`;
   }
 
   let resultsLimit = { sig: '', n: 100 };
@@ -1635,14 +1843,24 @@
       if (r.value === 'ver') { $('#abcFilter').value = 'pend'; $('#reportSearch').value = ''; renderResultsTable(); }
       return;
     }
-    const r = await ask({ title: `Aprobar ${T(current).doc}`,
-      html: `<p>Todas las desviaciones están revisadas.</p><p>Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>`,
-      buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar', value: 'ok', cls: 'primary' }] });
-    if (r.value !== 'ok') return;
+    // Cierre: la QF deja una observación general (obligatoria; puede ser "Sin observaciones").
+    let obs = '', falta = false, r;
+    for (;;) {
+      r = await ask({ title: `Cerrar y aprobar ${T(current).doc}`,
+        html: `<p>Todas las desviaciones están revisadas. Al aprobar, el reporte queda cerrado con las cantidades finales y a nombre de <b>${esc(me.nombre)}</b>.</p>
+          <label>Observación general del cierre<textarea name="obsCierre" rows="3" maxlength="1000" placeholder="Ej: Se encontraron 2 cajas en bodega trasera; se informa a la central. Si no hay nada que destacar, escribe: Sin observaciones.">${esc(obs)}</textarea></label>
+          ${falta ? '<p class="small" style="color:var(--bad);margin:0">Escribe una observación general para cerrar.</p>' : ''}`,
+        buttons: [{ label: 'Cancelar', value: '' }, { label: 'Aprobar y cerrar', value: 'ok', cls: 'primary' }] });
+      if (r.value !== 'ok') return;
+      obs = (r.fields.obsCierre || '').trim().slice(0, 1000);
+      if (obs.length >= 3) break;
+      falta = true;
+    }
     current.verifiedAt = Date.now();
     current.verifiedBy = me.nombre;
+    current.obsCierre = obs;
     save();
-    audit(`Aprobó ${T(current).doc}`, { detalle: `${rows.filter((x) => x.review).length} productos revisados` });
+    audit(`Aprobó ${T(current).doc}`, { detalle: `${rows.filter((x) => x.review).length} productos revisados · obs: ${obs.slice(0, 200)}` });
     renderSummary();
     renderResultsTable();
   };
@@ -1701,10 +1919,25 @@
     const ws = XLSX.utils.json_to_sheet(exportRows());
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
-    const info = [[T(current).Doc, safeCell(current.nombre)], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Existencias al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
+    const info = [[T(current).Doc, safeCell(current.nombre)], ['Sucursal', current.sucursal || ''], ...(current.fechaSistema ? [['Reporte al', current.fechaSistema]] : []), ['Contado por', current.contadoPor || ''],
       ['Inicio conteo', current.startedAt ? fmtDate(current.startedAt) : ''], ['Cierre', current.finishedAt ? fmtDate(current.finishedAt) : ''],
+      ...((pr) => [['Inicio del ' + T(current).doc, pr.h.inicio ? fmtDate(pr.h.inicio) : ''], ['Término', pr.h.aprobado ? fmtDate(pr.h.aprobado) : ''],
+        ['Observación general del cierre', safeCell(current.obsCierre || '')]])(tiemposProceso(current)),
+      ...((pr) => [[current.tipo === 'inventario' ? 'PDF cargado' : 'Pedido cargado', pr.h.cargado ? fmtDate(pr.h.cargado) : ''], ['Espera antes de contar', pr.espera !== null ? fmtDur(pr.espera) : ''],
+        ['Inicio revisión QF', pr.h.revision ? fmtDate(pr.h.revision) : ''], ['Espera de revisión', pr.esperaRev !== null ? fmtDur(pr.esperaRev) : ''],
+        ['Revisión del QF', pr.revision !== null ? fmtDur(pr.revision) : ''], ['Tiempo total del proceso', pr.total !== null ? fmtDur(pr.total) : '']])(tiemposProceso(current)),
+      ...((tc) => tc ? [['Tiempo total', fmtDur(tc.total)], ['Tiempo contando', fmtDur(tc.activo)], ['Pausas', tc.pausas.length], ['Tiempo en pausa', fmtDur(tc.pausas.reduce((s, x) => s + x, 0))]] : [])(tiempoConteo(current)),
       ['Veces reabierto', current.reopened || 0], ['Aprobado por', current.verifiedBy || ''], ['Aprobado el', current.verifiedAt ? fmtDate(current.verifiedAt) : '']];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'Resumen');
+    const tc = tiempoConteo(current);
+    if (tc) {
+      const filas = [];
+      tc.tramos.forEach((x, i) => {
+        if (i) filas.push({ Tipo: 'Pausa', Desde: hhmm(tc.tramos[i - 1].fin), Hasta: hhmm(x.ini), Minutos: Math.round(tc.pausas[i - 1] / 60000), Registros: '', Quién: '' });
+        filas.push({ Tipo: 'Tramo ' + (i + 1), Desde: hhmm(x.ini), Hasta: hhmm(x.fin), Minutos: Math.round((x.fin - x.ini) / 60000), Registros: x.n || 0, Quién: safeCell(x.por || '') });
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), 'Tiempo del conteo');
+    }
     XLSX.writeFile(wb, safeName(current.nombre) + '-diferencias.xlsx');
     audit('Exportó reporte a Excel', { detalle: `${exportRows().length} filas` });
   };
@@ -2000,8 +2233,8 @@
         <label>Usuario (para entrar)<input name="usuario" value="${esc(u ? u.usuario : '')}" autocapitalize="none" spellcheck="false"></label>
         <label>Rol<select name="rol">
           <option value="auxiliar" ${!u || u.rol === 'auxiliar' ? 'selected' : ''}>Auxiliar: solo digita cantidades</option>
-          <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: revisa y verifica las desviaciones</option>
-          <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: todo</option></select></label>
+          <option value="qf" ${u && u.rol === 'qf' ? 'selected' : ''}>QF: carga el inventario, revisa y aprueba</option>
+          <option value="admin" ${u && u.rol === 'admin' ? 'selected' : ''}>Administrador: configura y carga pedidos</option></select></label>
         <label>Sucursal (opcional)<input name="sucursal" value="${esc(u ? u.sucursal : '')}" placeholder="Ej: CL0007 RENCA"></label>
         ${u ? '' : '<label>Contraseña inicial<input name="pass" type="password" autocomplete="new-password"></label>'}`,
       buttons: [{ label: 'Cancelar', value: '' }, { label: 'Guardar', value: 'ok', cls: 'primary' }] });
@@ -2230,15 +2463,16 @@
   }
 
   // =========================================================
-  // NUEVO INVENTARIO (desde el reporte de existencias)
+  // NUEVO INVENTARIO (desde el reporte de inventario de SPOS)
   // =========================================================
   let invDraft = null;
   $('#btnNewInventory').onclick = () => {
+    if (!isStaff()) return;
     invDraft = null;
     show('inv', 'Nuevo inventario');
     $('#invStatus').hidden = true;
     $('#invPreview').innerHTML = (catalog.items || []).length ? ''
-      : `<div class="load-status warn">${ic('alert')}<span>Aún no cargas el <b>maestro de productos</b>. Sin él no se puede escanear por código de barras; solo buscar por nombre o código. Cárgalo desde el menú de usuario → Maestro de productos.</span></div>`;
+      : `<div class="load-status warn">${ic('alert')}<span>Aún no cargas el <b>maestro de productos</b>. Sin él no se puede escanear por código de barras; solo buscar por nombre o código. ${isAdmin() ? 'Cárgalo desde el menú de usuario → Maestro de productos.' : 'Pídele al administrador que lo cargue.'}</span></div>`;
     $('#invFoot').hidden = true;
   };
   const INV_RULES = [
@@ -2278,7 +2512,7 @@
     try {
       if (tooBig(f)) throw new Error(`El archivo pesa más de ${MAX_MB} MB. Revisa que sea el correcto.`);
       const rep = /\.pdf$/i.test(f.name) ? Importar.parseExistencias(await Importar.fromPdf(f)) : parseInventoryRows(await readSheetRows(f));
-      if (!rep.items.length) throw new Error('No encontré productos en el reporte. Revisa que sea el reporte de existencias.');
+      if (!rep.items.length) throw new Error('No encontré productos en el reporte. Revisa que sea el reporte de inventario de SPOS.');
       // Completa el código de barras con el maestro.
       for (const it of rep.items) {
         let p = it.sku ? catalogIndex().sku.get(normCode(it.sku)) : null;
@@ -2306,7 +2540,7 @@
         <h3 class="card-title">Datos del inventario</h3>
         <div class="grid2">
           <label class="field">Sucursal<input id="invSucursal" value="${esc(d.sucursal)}" placeholder="Ej: CL0007 RENCA"></label>
-          <label class="field">Existencias al<input id="invFecha" value="${esc(d.fecha)}" placeholder="dd/mm/aaaa"></label>
+          <label class="field">Fecha del reporte<input id="invFecha" value="${esc(d.fecha)}" placeholder="dd/mm/aaaa"></label>
         </div>
       </div>
       <div class="kpis">
@@ -2324,8 +2558,10 @@
   }
   $('#btnSaveInventory').onclick = async () => {
     if (!invDraft) return;
-    const sucursal = $('#invSucursal').value.trim();
+    const sucursal = $('#invSucursal').value.trim() || (me && me.sucursal) || '';
     const fecha = $('#invFecha').value.trim();
+    if (!isAdmin() && me.sucursal && !sameBranch(sucursal, me.sucursal))
+      return info('Reporte de otra sucursal', `Este reporte es de <b>${esc(sucursal)}</b> y tú estás asignada a <b>${esc(me.sucursal)}</b>. Revisa que descargaste de SPOS el reporte de tu sucursal.`);
     const o = newOrder({
       tipo: 'inventario',
       nombre: `Inventario ${sucursal || ''} ${fecha || new Date().toLocaleDateString('es')}`.replace(/\s+/g, ' ').trim(),

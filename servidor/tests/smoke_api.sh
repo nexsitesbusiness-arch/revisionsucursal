@@ -28,27 +28,42 @@ check "Login QF" "$(call qf POST login.php '{"usuario":"carla","clave":"Revisa20
 check "Auxiliar no puede administrar usuarios" "$(call aux GET usuarios.php)" 403
 check "Auxiliar no puede crear usuarios" "$(call aux POST usuarios.php '{"nombre":"Hack","usuario":"hack","rol":"admin","clave":"Hackeo2026"}')" 403
 echo "Documento:"
-DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0007","sucursal":"CL0007 RENCA","items":[{"id":"i1","sku":"CH9001","codigo":"7806130007772","producto":"ACIDO BORICO","cantidad":59,"precio":1000},{"id":"i2","sku":"CH6091","codigo":"7794640172731","producto":"ADHESIVO","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+DOC='{"documento":{"id":"doc000001","tipo":"inventario","nombre":"Inventario CL0007","sucursal":"CL0007 RENCA","items":[{"id":"i1","sku":"CH9001","codigo":"7806130007772","producto":"ACIDO BORICO","cantidad":59,"precio":1000,"vencimiento":"2027-01-31"},{"id":"i2","sku":"CH6091","codigo":"7794640172731","producto":"ADHESIVO","cantidad":17,"precio":2000}],"counts":{},"extras":[],"evid":{},"log":[]}}'
 check "Auxiliar no puede crear documentos" "$(call aux POST documentos.php "$DOC")" 403
 check "Admin crea inventario" "$(call admin POST documentos.php "$DOC")" 200
 check "Mapa vacío viaja como objeto (no lista)" "$(grep -c '"counts":{}' "$T/out")" 1
 call aux GET 'documentos.php?id=doc000001' >/dev/null
 check "Auxiliar NO recibe cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 0
 check "Auxiliar NO recibe costos" "$(grep -c '"precio":1000' "$T/out")" 0
+check "Auxiliar NO recibe vencimientos (los audita la QF)" "$(grep -c '"vencimiento"' "$T/out")" 0
 check "Auxiliar de otra sucursal no ve el documento" "$(call ana GET 'documentos.php?id=doc000001')" 404
 check "QF de la sucursal ve las cantidades" "$(call qf GET 'documentos.php?id=doc000001' >/dev/null; grep -c '"cantidad":59' "$T/out")" 1
-check "Auxiliar guarda su conteo" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":59,"i2":6},"items":[{"id":"i1","cantidad":0}],"review":{"i2":{"decision":"correcta"}}}}')" 200
+check "QF ve el vencimiento" "$(grep -c '"vencimiento":"2027-01-31"' "$T/out")" 1
+check "Auxiliar guarda su conteo" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"tramos":[{"ini":1000,"fin":61000,"n":2}],"counts":{"i1":59,"i2":6},"items":[{"id":"i1","cantidad":0}],"review":{"i2":{"decision":"correcta"}}}}')" 200
 call qf GET 'documentos.php?id=doc000001' >/dev/null
 check "El auxiliar no pudo cambiar cantidades del sistema" "$(grep -c '"cantidad":59' "$T/out")" 1
 check "El conteo del auxiliar quedó guardado" "$(grep -c '"counts":{"i1":59,"i2":6}' "$T/out")" 1
+check "Los tramos y pausas del conteo quedan guardados" "$(grep -c '"tramos":\[{"ini":1000' "$T/out")" 1
 check "El auxiliar no pudo registrar revisiones" "$(grep -c '"review":{"i2"' "$T/out")" 0
+echo "Inventario cargado por la QF (reporte de SPOS):"
+INVQF='{"documento":{"id":"docqf0001","tipo":"inventario","nombre":"Inventario QF","sucursal":"cl0007   renca","items":[{"id":"q1","sku":"CH9001","producto":"ACIDO BORICO","cantidad":5}],"counts":{},"extras":[],"evid":{},"log":[]}}'
+check "QF crea inventario de su sucursal" "$(call qf POST documentos.php "$INVQF")" 200
+check "QF no puede crear pedidos" "$(call qf POST documentos.php '{"documento":{"id":"docqf0002","tipo":"pedido","nombre":"P","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF no puede crear inventario de otra sucursal" "$(call qf POST documentos.php '{"documento":{"id":"docqf0003","tipo":"inventario","nombre":"I","sucursal":"CL0009 MAIPU","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "Auxiliar no puede crear inventarios" "$(call aux POST documentos.php '{"documento":{"id":"docqf0004","tipo":"inventario","nombre":"I","sucursal":"CL0007 RENCA","items":[{"id":"x","producto":"X","cantidad":1}]}}')" 403
+check "QF elimina inventario sin conteo" "$(call qf DELETE 'documentos.php?id=docqf0001')" 200
+check "QF no puede eliminar un inventario ya contado" "$(call qf DELETE 'documentos.php?id=doc000001')" 403
+check "Auxiliar no puede eliminar documentos" "$(call aux DELETE 'documentos.php?id=doc000001')" 403
 check "Versión antigua da conflicto" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":1,"documento":{"counts":{"i1":1}}}')" 409
 check "Auxiliar finaliza" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":2,"documento":{"counts":{"i1":59,"i2":6},"finishedAt":1}}')" 200
 check "Auxiliar no puede cambiar el conteo finalizado" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":1,"i2":6}}}')" 403
-check "Auxiliar no puede aprobar" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}' >/dev/null; grep -c verifiedAt "$T/out")" 0
+check "Auxiliar no puede aprobar" "$(call aux PUT 'documentos.php?id=doc000001' '{"version":3,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1,"revisionIni":123}}' >/dev/null; grep -c verifiedAt "$T/out")" 0
+check "Auxiliar no puede marcar el inicio de la revisión" "$(grep -c revisionIni "$T/out")" 0
 check "QF no puede aprobar con pendientes" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}')" 409
-check "QF revisa" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"review":{"i2":{"decision":"correcta","obs":"ok"}}}}')" 200
-check "QF aprueba" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":5,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1}}')" 200
+check "QF revisa" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":4,"documento":{"counts":{"i1":59,"i2":6},"revisionIni":456,"review":{"i2":{"decision":"correcta","obs":"ok"}}}}')" 200
+check "Queda la hora en que la QF empezó a revisar" "$(grep -c '"revisionIni":456' "$T/out")" 1
+check "QF aprueba" "$(call qf PUT 'documentos.php?id=doc000001' '{"version":5,"documento":{"counts":{"i1":59,"i2":6},"verifiedAt":1,"obsCierre":"  Sin novedades en bodega  "}}')" 200
+check "Queda la observación general del cierre" "$(grep -c '"obsCierre":"Sin novedades en bodega"' "$T/out")" 1
 check "Aprobado queda a nombre del QF" "$(grep -c '"verifiedBy":"Carla QF"' "$T/out")" 1
 echo "Evidencia:"
 printf '\xff\xd8\xff\xe0fakejpg' > "$T/f.jpg"; printf '<?php echo 1;' > "$T/x.php"

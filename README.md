@@ -30,15 +30,16 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
 
 - La primera vez la app pide crear el **administrador** (nombre, usuario y contraseña).
 - El administrador crea usuarios desde el menú de usuario → **Usuarios**, con tres roles:
-  - **Administrador:** carga pedidos, inventarios, maestro y costos; administra usuarios; reabre conteos.
-  - **QF:** ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
+  - **Administrador:** configura el sistema (usuarios, maestro y costos), carga los pedidos que se despachan a las sucursales y reabre conteos.
+  - **QF:** carga el inventario de su sucursal (reporte de inventario de SPOS en PDF), ve el reporte de desviaciones en orden ABC, hace el recuento y aprueba.
+  - A cada QF y auxiliar se le asigna su **sucursal** (ej. `CL0007 RENCA`): solo ve y carga documentos de esa sucursal.
   - **Auxiliar:** solo digita cantidades. No ve cantidades del sistema, ni totales, ni si lo que digita coincide. Al finalizar recibe solo un "Conteo finalizado".
 - Las contraseñas nunca se guardan en texto (ver Seguridad).
 - **Con servidor**, los usuarios son los mismos en todas las tablets. **Sin servidor**, viven en cada equipo: para copiarlos a otra tablet, menú → **Exportar configuración** y, en la otra, **Importar configuración**.
 
 ## Flujo de un inventario
 
-1. **Administrador:** carga el maestro, los costos y el reporte de existencias.
+1. **QF:** descarga desde **SPOS** el reporte de inventario de su sucursal en PDF y lo sube en **Nuevo inventario**. La app lee la sucursal, la fecha y cada producto con su cantidad del sistema, y le agrega el código de barras desde el maestro (que carga el administrador). Si el reporte es de otra sucursal, no lo deja crear. Si se equivocó de archivo, puede eliminar el inventario mientras nadie haya empezado a contar.
 2. **Auxiliar:** cuenta a ciegas (escaneando o digitando) y finaliza.
 3. **QF:** abre el **Reporte de desviaciones**, ordenado por **clase ABC** (A = desviaciones que suman el 80 % del valor, B = siguiente 15 %, C = resto) y **revisa cada desviación**: marca si la cantidad contada es correcta (la diferencia es real) o la corrige, y deja una observación. La app mide cuánto tiempo estuvo revisando cada producto.
    - **Revisión aleatoria:** elige al azar N productos de los más caros, de costo medio o de los más baratos (incluidos los que no tuvieron diferencia) para recontarlos.
@@ -46,6 +47,36 @@ App web para revisar el pedido que llega a la sucursal sin buscar producto por p
    - **Aprobar** solo se habilita cuando todas las desviaciones y la muestra aleatoria están revisadas.
 
 Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidades (la app lo avisa).
+
+## Escáner de códigos
+
+El escáner usa **ZXing-C++** (WebAssembly), incluido en la app (`vendor/zxing/`):
+
+- Lee **EAN-13/8, UPC, Code 128/39/93, ITF, Codabar, GS1 DataBar, DataMatrix (con lote y vencimiento) y QR**, también códigos pequeños, inclinados, borrosos o con poco contraste.
+- Funciona igual en **iPhone/iPad, Android y computador**, y **sin internet** (queda guardado en el equipo).
+- Lee solo lo que está dentro del **recuadro** de la cámara. Un código cuenta **una vez mientras siga a la vista**: para sumar otra caja igual, se saca del recuadro y se vuelve a mostrar (o se usa *Unidades por escaneo*).
+- **Foto:** si la cámara en vivo no abre o un código cuesta, el botón *Foto* lee el código desde una foto.
+- Linterna, si el equipo la tiene.
+
+En pruebas con 20 imágenes difíciles (códigos chicos, rotados, borrosos y de bajo contraste), el lector actual leyó 20 de 20; el anterior (html5-qrcode) leía 12 de 20.
+
+## Tiempo del conteo
+
+En el reporte, la QF ve cuánto se demoró el conteo y cómo se repartió el tiempo:
+
+- **Inicio, fin y tiempo total**, y cuánto de ese tiempo se estuvo **contando**.
+- **Pausas:** si pasan más de 5 minutos sin registrar nada, se considera pausa. Se ve cuántas hubo y cuánto duró cada una.
+- **Tramos:** por ejemplo, *Tramo 1 · 09:00–09:10 · 10 min* → *Pausa de 4 min* → *Tramo 2 · 09:14–09:44 · 30 min*, con una línea de tiempo y quién contó cada tramo.
+
+Esto también queda en el Excel (hoja *Tiempo del conteo*) y en la bitácora.
+
+Además, **Tiempos del proceso** muestra todo el recorrido de punta a punta, con la hora de cada hito y cuánto pasó entre ellos:
+
+*PDF cargado 08:50 → (espera 20 min) → inicio del conteo 09:10 → (conteo 10 min) → fin 09:20 → (espera de revisión 30 min) → la QF empieza a revisar 09:50 → (revisión 15 min) → aprobado 10:05 · **Total 1 h 15 min***
+
+Mientras no termina, los pasos que faltan aparecen "en curso" o "pendiente". También va al Excel (hoja *Resumen*).
+
+**Cierre del inventario:** al aprobar, la QF escribe una **observación general** (obligatoria; si no hay nada que destacar, "Sin observaciones"). En el reporte queda arriba: **inicio** (fecha y hora en que se empezó a contar), **término** (fecha y hora de la aprobación), **quién cerró** y la observación. También va al Excel y a la bitácora.
 
 ## Bitácora
 
@@ -60,9 +91,9 @@ Menú de usuario → **Bitácora** (administrador y QF), o el botón **Bitácora
 - **Sin servidor:** las contraseñas se cifran con PBKDF2 en el equipo. Sirve para una tablet compartida, pero alguien con conocimientos técnicos y acceso físico a la tablet podría borrar los datos del navegador.
 - En los dos modos hay política de seguridad de contenido (CSP), verificación de integridad (SRI) de las librerías externas y exportaciones a Excel/CSV que neutralizan fórmulas escondidas.
 
-## Vencimiento
+## Vencimiento (lo audita la QF)
 
-Si el código escaneado (DataMatrix GS1) trae fecha de vencimiento y faltan **90 días o menos**, la app avisa. La fecha queda en el reporte del QF ("Vence pronto") y en el Excel (columna *Vencimiento leído*).
+Si el código escaneado (DataMatrix GS1) trae fecha de vencimiento y faltan **90 días o menos**, la app la guarda sin avisarle al auxiliar, para no distraer el conteo a ciegas. La **QF** la ve en el reporte ("Vence pronto" o "Vencido") y en el Excel (columna *Vencimiento leído*). Si escanea el administrador o la QF, la app sí avisa en el momento.
 
 ## Privacidad (Ley 21.719)
 
@@ -76,11 +107,11 @@ Menú de usuario → **Maestro de productos** → subir el Excel (columnas *Mate
 
 ## Inventarios
 
-1. **Nuevo inventario** → subir el **reporte de existencias** (PDF o Excel). La app lee la sucursal, la fecha y cada producto con su código, nombre, categoría y cantidad del sistema, y le agrega el código de barras desde el maestro.
+1. **Nuevo inventario** (QF) → subir el **reporte de inventario de SPOS** (PDF o Excel). La app lee la sucursal, la fecha y cada producto con su código, nombre, categoría y cantidad del sistema, y le agrega el código de barras desde el maestro.
 2. La sucursal cuenta **sin ver las cantidades del sistema**: escaneando, buscando por nombre o código de material, con filtro por categoría. Si escanea algo que no figura en el reporte, la app muestra el nombre desde el maestro y lo registra como sobrante.
 3. Al cerrar: **Contado vs Sistema** por producto (faltante, sobrante, no encontrado, no figura en sistema), con exportación a Excel (material, código de barras, categoría).
 
-Probado con el reporte real de existencias CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
+Probado con el reporte de inventario real de CL0007 Renca (1.219 productos, 22.969 unidades, 6 categorías): el 91 % de los productos se puede escanear con el maestro.
 
 ## Evidencia con fotos
 

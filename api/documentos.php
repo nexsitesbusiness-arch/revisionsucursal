@@ -9,8 +9,8 @@ $u = require_login();
 $m = method();
 
 // Campos que cada rol puede cambiar en un documento.
-const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc'];
-const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples'];
+const CAMPOS_CONTEO = ['counts', 'extras', 'evid', 'log', 'startedAt', 'venc', 'tramos'];
+const CAMPOS_QF = ['review', 'recount', 'recountBy', 'samples', 'revisionIni', 'obsCierre'];
 
 function load_doc(string $id): ?array {
     $r = q('SELECT id, tipo, sucursal, version, datos FROM documentos WHERE id = ?', [$id])->fetch();
@@ -55,8 +55,14 @@ if ($m === 'GET') {
 $in = json_in();
 
 if ($m === 'POST') {
-    require_role(['admin']);
+    // Pedidos: solo el administrador. Inventarios: también la QF (sube el reporte de existencias de SPOS).
+    require_role(['admin', 'qf']);
     $d = clean_doc($in['documento'] ?? []);
+    if ($u['rol'] === 'qf') {
+        if (($d['tipo'] ?? '') !== 'inventario') { audit_server('Intento de crear pedido sin permiso', ['resultado' => 'denegado']); fail('Solo el administrador puede cargar pedidos.', 403); }
+        if (($d['sucursal'] ?? '') === '') $d['sucursal'] = $u['sucursal'];
+        if (!can_see_doc($u, $d)) { audit_server('Intento de crear inventario de otra sucursal', ['resultado' => 'denegado', 'sucursal' => $d['sucursal']]); fail('Este reporte es de otra sucursal.', 403); }
+    }
     if (empty($d['id']) || !preg_match('/^[A-Za-z0-9_\-]{6,40}$/', (string) $d['id'])) fail('Documento no válido.');
     if (!in_array($d['tipo'] ?? '', ['pedido', 'inventario'], true) || !is_array($d['items'] ?? null) || !$d['items']) fail('El documento no tiene productos.');
     if (count($d['items']) > 20000) fail('El documento tiene demasiados productos.');
@@ -76,7 +82,10 @@ $srv = doc_row_to_obj($r);
 if (!can_see_doc($u, $srv)) { audit_server('Acceso denegado a documento', ['resultado' => 'denegado', 'doc_id' => $id]); fail('Documento no encontrado.', 404); }
 
 if ($m === 'DELETE') {
-    require_role(['admin']);
+    // La QF puede eliminar un inventario mal cargado mientras nadie ha contado.
+    $sinConteo = ($srv['tipo'] ?? '') === 'inventario' && empty($srv['finishedAt']) && empty((array) ($srv['counts'] ?? [])) && empty($srv['extras'] ?? []);
+    if (!($u['rol'] === 'admin' || ($u['rol'] === 'qf' && $sinConteo))) { audit_server('Intento de eliminar documento sin permiso', ['resultado' => 'denegado', 'doc_id' => $id]); fail('No puedes eliminar este documento.', 403); }
+    audit_server('Eliminó documento', ['doc_id' => $id, 'doc' => $srv['nombre'] ?? null, 'sucursal' => $srv['sucursal'] ?? null]);
     q('DELETE FROM evidencias WHERE documento_id = ?', [$id]);
     q('DELETE FROM documentos WHERE id = ?', [$id]);
     out(['ok' => true]);
@@ -123,6 +132,7 @@ if ($m === 'PUT') {
             }
         }
     }
+    if (isset($new['obsCierre'])) $new['obsCierre'] = mb_substr(trim((string) $new['obsCierre']), 0, 1000);
     $nv = save_doc($new, $u, $version);
     if (!$nv) out(['ok' => false, 'error' => 'Otro equipo modificó este documento.', 'conflicto' => true], 409);
     $new['_version'] = $nv;

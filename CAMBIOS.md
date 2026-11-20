@@ -2,6 +2,63 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Prueba con Cefalmin y ajuste de la cámara
+
+- Prueba de punta a punta en el servidor con un producto Cefalmin de ejemplo (cámara en vivo, foto de DataMatrix, revisión y cierre de la QF): todo correcto.
+- **Corrección:** al escanear con la cámara abierta, la pantalla bajaba hasta el producto contado y la cámara quedaba tapada bajo la barra superior. Ahora, con la cámara abierta, la pantalla no se mueve: el producto se marca y el aviso dice cuál fue.
+
+## 17-11-2026 · Escáner nuevo: ZXing-C++ (WebAssembly)
+
+- El escáner usa **zxing-wasm 3.1.5** (ZXing-C++) en lugar de html5-qrcode 2.3.8.
+  - *Motivo:* html5-qrcode usa un ZXing antiguo en JavaScript que lee mal los DataMatrix y en iPhone no tiene alternativa. En 20 imágenes difíciles, el nuevo leyó 20 y el anterior 12.
+  - *Decisión:* el lector va **incluido en la app** (`vendor/zxing/`, ~1 MB, verificado contra npm) para funcionar sin internet y no depender de un CDN.
+- Cámara propia: alta resolución, lectura de la zona del recuadro, enfoque continuo y linterna.
+- Un código cuenta **una vez mientras siga a la vista** (antes se repetía cada 1,5 s si la cámara se quedaba quieta sobre el código).
+- Nuevo botón **Foto**: lee el código desde una foto si la cámara en vivo no está disponible.
+- Apache entrega los `.wasm` con su tipo correcto; se quitó `unpkg.com` de la política de seguridad (ya no se usa).
+- Ojo: los códigos de los archivos de ejemplo (`ejemplo-pedido.csv`, maestro de ejemplo) no tienen dígito verificador válido; sirven para escribir, pero no existen como códigos impresos reales.
+
+## 17-11-2026 · Cierre con fecha de inicio, término y observación general
+
+- Al **aprobar**, la QF escribe una **observación general del cierre** (obligatoria; puede ser "Sin observaciones").
+  - *Decisión:* obligatoria, para que todo cierre deje constancia.
+- El reporte muestra arriba: **inicio** del inventario (fecha y hora en que se empezó a contar), **término** (fecha y hora de aprobación), **quién cerró** y la observación. También en el Excel y en la bitácora.
+- El servidor guarda la observación solo si viene de la QF o del administrador, y la recorta a 1000 caracteres.
+
+## 17-11-2026 · Tiempos del proceso completo
+
+- El reporte muestra **Tiempos del proceso**: PDF (o pedido) cargado → inicio del conteo → fin del conteo → inicio de la revisión de la QF → aprobado, con la espera o duración entre cada hito y el **total**. Lo pendiente se ve "en curso".
+- Se guarda la hora en que la QF abre el reporte por primera vez (`revisionIni`) y queda en la bitácora ("Inició la revisión del conteo"). El servidor solo deja guardarla a la QF o al administrador.
+- También va al Excel (hoja Resumen).
+- Duraciones de 1 hora o más se muestran como "1 h" o "1 h 15 min".
+
+## 17-11-2026 · Tiempo del conteo con tramos y pausas; "reporte de inventario"
+
+- El reporte de la QF muestra el **tiempo del conteo**: inicio, fin, tiempo total, tiempo contando, cuántas **pausas** hubo y cuánto duró cada **tramo** (ej. 10 min, pausa, 4 min, pausa, 30 min), con una línea de tiempo.
+  - *Decisión:* es pausa cuando pasan más de **5 minutos** sin registrar nada (`PAUSA_MIN`, se puede ajustar).
+  - Va también al Excel (hoja "Tiempo del conteo") y a la bitácora ("Retomó el conteo tras una pausa").
+- Los textos dicen **"reporte de inventario"** de SPOS en vez de "reporte de existencias" (pedido de Bastian).
+- Las horas de los tramos se muestran en formato de 24 horas.
+
+## 16-11-2026 · La QF carga el inventario desde SPOS
+
+- La **QF** crea el inventario subiendo el reporte de inventario en PDF que descarga de **SPOS**. Antes lo hacía solo el administrador.
+  - *Decisión de Bastian:* el inventario lo inicia la QF de la sucursal; el administrador queda para la configuración y los pedidos.
+- La QF solo puede cargar reportes de **su sucursal**: la app y el servidor lo validan comparando el código (ej. CL0007), sin importar mayúsculas ni espacios.
+- La QF puede **eliminar un inventario mal cargado** mientras nadie haya empezado a contar. El auxiliar nunca puede eliminar. Todo queda en la bitácora.
+- Nuevas pruebas: 7 en la API (permisos de crear y eliminar) y una prueba de navegador del flujo completo.
+
+## 16-11-2026 · Corrección: escaneo de DataMatrix en inventarios
+
+- Al escanear una caja con DataMatrix (trae lote) en un inventario, el producto quedaba como "Lote distinto" y sin contar, porque los inventarios no tienen lote cargado. Ahora, si el producto no tiene lote en el documento, se cuenta normal.
+- El auxiliar ya no ve el motivo "Lote distinto al enviado" en los productos que agrega (conteo a ciegas). El QF y el administrador sí lo ven.
+- Se detectó al grabar la guía en video con la app real.
+- El auxiliar ya no ve el precio de los productos en la lista del pedido (modo sin servidor; con servidor ya se quitaba).
+- El vencimiento de cada producto se muestra en formato dd-mm-aaaa.
+- **Vencimiento solo para la QF (auditora):** al auxiliar ya no se le avisa ni se le muestran vencimientos, y el servidor no se los envía. La fecha leída del código se guarda igual y la QF la ve en el reporte y el Excel.
+  - *Decisión de Bastian:* el vencimiento es tarea de auditoría de la QF, no del conteo.
+- En inventarios, el aviso al escanear ya no dice "lote verificado" cuando el producto no tiene lote contra el cual comparar.
+
 ## 16-11-2026 · Versión 1.0: servidor, vencimiento, privacidad y rendimiento
 
 - **Modo con servidor (PHP + MySQL en Google Cloud).** Usuarios, documentos, fotos y bitácora quedan centralizados. Los permisos los valida el servidor, no solo la app.
@@ -27,7 +84,7 @@ Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
 ## Inventarios, maestro y usuarios
 
-- Módulo de inventario a partir del reporte de existencias en PDF y del maestro de materiales en Excel.
+- Módulo de inventario a partir del reporte de inventario en PDF y del maestro de materiales en Excel.
 - Inicio de sesión con usuario y contraseña.
 
 ## Carga de pedidos y evidencia

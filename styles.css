@@ -447,3 +447,59 @@ table.log td.when { white-space: nowrap; }
 .privacy-doc { max-height: 60vh; overflow: auto; font-size: 14px; padding-right: 4px; }
 .privacy-doc h4 { margin: 14px 0 4px; font-size: 14px; }
 .privacy-doc ul { margin: 4px 0; padding-left: 18px; }
+
+/* Tiempo del conteo (tramos y pausas) */
+.tiempo { margin-bottom: 14px; display: grid; gap: 12px; }
+.tiempo-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+.tiempo-head .card-title { margin: 0; display: flex; align-items: center; gap: 8px; }
+.tiempo-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.tiempo-kpis div { background: var(--surface-2); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.tiempo-kpis span { display: block; font-size: 12px; color: var(--muted); }
+.tiempo-kpis b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.tiempo-kpis small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.timeline { position: relative; height: 14px; border-radius: 99px; background: repeating-linear-gradient(90deg, var(--rule) 0 6px, var(--surface-2) 6px 10px); overflow: hidden; }
+.timeline span { position: absolute; top: 0; bottom: 0; background: var(--primary); border-radius: 99px; }
+.tl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13.5px; }
+.tl-list li { white-space: nowrap; }
+.tl-list .tl-pausa { color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.tl-list .tl-pausa .ic { width: 14px; height: 14px; }
+@media (max-width: 700px) { .tiempo-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tl-list { display: grid; } }
+
+/* Tiempos del proceso (carga → conteo → revisión → aprobación) */
+.proceso { margin-bottom: 14px; display: grid; gap: 12px; }
+.proceso-total { font-size: 14px; color: var(--muted); } .proceso-total b { color: var(--text); font-size: 18px; }
+.proceso-line { list-style: none; margin: 0; padding: 0; display: flex; align-items: stretch; gap: 0; overflow-x: auto; }
+.proceso-line .hito { display: grid; gap: 2px; justify-items: center; text-align: center; min-width: 104px; font-size: 13px; padding: 0 4px; }
+.proceso-line .hito .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); }
+.proceso-line .hito.ok .dot { background: var(--primary); border-color: var(--primary); }
+.proceso-line .tramo { flex: 1; min-width: 92px; display: grid; align-content: start; justify-items: center; gap: 2px; font-size: 12px; color: var(--muted); padding-top: 0; position: relative; }
+.proceso-line .tramo::before { content: ""; height: 3px; width: 100%; background: var(--primary); border-radius: 3px; margin: 5.5px 0 4px; }
+.proceso-line .tramo.vivo::before { background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 10px); }
+.proceso-line .tramo.nada::before { background: var(--rule); }
+.proceso-line .tramo b { font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.proceso-line .tramo.vivo b { color: var(--warn); }
+@media (max-width: 700px) {
+  .proceso-line { display: grid; }
+  .proceso-line .hito { grid-template-columns: 14px auto 1fr; justify-items: start; text-align: left; gap: 10px; align-items: center; min-width: 0; }
+  .proceso-line .hito .muted { justify-self: end; }
+  .proceso-line .tramo { grid-template-columns: auto 1fr; justify-items: start; margin-left: 6px; padding: 4px 0 4px 16px; border-left: 3px solid var(--primary); min-width: 0; }
+  .proceso-line .tramo::before { display: none; }
+  .proceso-line .tramo.vivo { border-left-style: dashed; border-left-color: var(--warn); } .proceso-line .tramo.nada { border-left-color: var(--rule); }
+  .proceso-line .tramo b { justify-self: end; }
+}
+
+/* Cierre del documento: inicio, término, quién cerró y observación general */
+.cierre { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cierre div { background: var(--surface-2); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.cierre span, .obs-cierre span { display: block; font-size: 12px; color: var(--muted); }
+.cierre b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.obs-cierre { border-left: 3px solid var(--primary); background: var(--primary-soft); border-radius: 0 8px 8px 0; padding: 8px 12px; }
+.obs-cierre p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .cierre { grid-template-columns: minmax(0, 1fr); } }
+
+/* Cámara del escáner (lector ZXing) */
+#reader { position: relative; background: #000; }
+#reader video { display: block; width: 100%; max-height: 52vh; object-fit: cover; }
+#reader .reader-frame { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+#reader .reader-frame span { width: 80%; height: 60%; border: 2px solid rgba(255, 255, 255, .85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); }
+#btnScanPhoto { flex: none; }
