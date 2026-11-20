@@ -50,7 +50,7 @@ Sin costos cargados, el orden ABC y los grupos aleatorios se calculan por unidad
 
 ## Planillas de ejemplo (`ejemplos/`)
 
-Para probar sin datos reales. Cefalmin usa su código real (**7800038041210**); los demás productos son ficticios (EAN válidos).
+Para probar sin datos reales. Cefalmin (**7800038041210**) y Naproxeno (**7800071763940**) usan sus códigos reales; los demás productos son ficticios (EAN válidos).
 
 | Archivo | Para qué |
 |---|---|
@@ -59,6 +59,8 @@ Para probar sin datos reales. Cefalmin usa su código real (**7800038041210**); 
 | `inventario-ejemplo.xlsx` | El mismo inventario en Excel. |
 | `pedido-ejemplo.xlsx` / `.csv` | Pedido que llega: código, producto, lote, precio, cantidad y vencimiento (Nuevo pedido). |
 | `codigos-para-imprimir.pdf` | Hoja A4 con el EAN-13 de cada producto y un DataMatrix GS1 de Cefalmin (lote CF2411, vence 31-01-2027) para probar la cámara. |
+
+Para probar solo la cámara, sin usuarios: `prueba-camara.html` (dice al tiro si leyó Cefalmin o Naproxeno y en cuánto tiempo).
 
 ## Escáner de códigos
 

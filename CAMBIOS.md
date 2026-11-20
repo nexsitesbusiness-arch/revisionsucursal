@@ -2,6 +2,11 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Naproxeno (EAN 7800071763940)
+
+- Se agrega **Naproxeno comprimidos** (EAN 7800071763940) al ejemplo de la app (maestro, inventario con 15 en el sistema y pedido con lote NX2501), a las planillas de `ejemplos/`, a la hoja de códigos para imprimir y a la página de prueba de cámara (que ahora cuenta cada producto por separado y muestra cualquier otro código leído).
+  - *Ojo:* el código entregado tenía 12 dígitos (780007176394); se completó con el dígito verificador calculado (0). Confirmar con la caja real.
+
 ## 20-11-2026 · Página de prueba de cámara (Cefalmin)
 
 - Nueva `prueba-camara.html`: sin usuarios ni datos guardados. Abre la cámara y dice al tiro si leyó Cefalmin (EAN 7800038041210), en cuánto tiempo, y si leyó otro código. También acepta foto y DataMatrix GS1. Sirve para comprobar que la cámara de cada teléfono lee bien antes de usar la app.

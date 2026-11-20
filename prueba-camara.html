@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Prueba de cámara · Cefalmin</title>
+<title>Prueba de cámara</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
 <style>
   :root { --navy: #13233a; --primary: #1f4fbf; --bg: #f3f5f8; --surface: #fff; --text: #14202e; --muted: #5d6b7c; --ok: #157a46; --ok-soft: #e7f5ed; --warn: #a8590a; --warn-soft: #fdf1e3; --rule: #e3e8ee; color-scheme: light; }
@@ -37,9 +37,9 @@
 <header>Revisión Sucursal · Prueba de cámara</header>
 <main>
   <section class="card">
-    <h1>¿La cámara lee bien Cefalmin?</h1>
-    <p>Apunta al código de barras de la caja. La página dice al tiro si lo leyó y en cuánto tiempo. No guarda nada.</p>
-    <div class="target" style="margin-top:12px"><span style="font-size:28px">💊</span><div><b>CEFALMIN COMPRIMIDOS X20</b><div class="mono">EAN 7800038041210</div></div></div>
+    <h1>¿La cámara lee bien los productos?</h1>
+    <p>Apunta al código de barras de la caja. La página dice al tiro qué producto leyó y en cuánto tiempo. Si es otro código, lo muestra. No guarda nada.</p>
+    <div id="targets" style="margin-top:12px;display:grid;gap:10px"></div>
   </section>
 
   <div class="btns">
@@ -54,8 +54,7 @@
   <div id="res" class="res" hidden></div>
 
   <section class="card">
-    <div class="stats">
-      <div><span>Lecturas de Cefalmin</span><b id="nOk">0</b></div>
+    <div class="stats" id="stats">
       <div><span>Primera lectura</span><b id="tFirst">—</b></div>
       <div><span>Otros códigos</span><b id="nOtro">0</b></div>
     </div>
@@ -76,11 +75,19 @@
 
 <script>
 (() => {
-  const CEFALMIN = '7800038041210';
+  // Productos de la prueba (EAN-13).
+  const PRODUCTOS = [
+    { id: 'cef', nombre: 'CEFALMIN COMPRIMIDOS X20', ean: '7800038041210', emoji: '💊' },
+    { id: 'nap', nombre: 'NAPROXENO COMPRIMIDOS', ean: '7800071763940', emoji: '💊' },
+  ];
   const $ = (id) => document.getElementById(id);
   const OPTS = { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE', 'Code128', 'Code39', 'ITF', 'DataBar', 'DataBarExp', 'DataMatrix', 'QRCode'],
     tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
-  let ready = null, stream = null, track = null, timer = 0, t0 = 0, nOk = 0, nOtro = 0, last = '', lastT = 0, torch = false;
+  const cuenta = {};
+  $('targets').innerHTML = PRODUCTOS.map((p) => `<div class="target"><span style="font-size:28px">${p.emoji}</span><div><b>${p.nombre}</b><div class="mono">EAN ${p.ean}</div></div></div>`).join('');
+  $('stats').insertAdjacentHTML('afterbegin', PRODUCTOS.map((p) => `<div><span>${p.nombre.split(' ')[0][0]}${p.nombre.split(' ')[0].slice(1).toLowerCase()}</span><b id="n-${p.id}">0</b></div>`).join(''));
+  $('stats').style.gridTemplateColumns = `repeat(${PRODUCTOS.length + 2}, 1fr)`;
+  let ready = null, stream = null, track = null, timer = 0, t0 = 0, nOtro = 0, last = '', lastT = 0, torch = false;
 
   function loadZX() {
     if (ready) return ready;
@@ -106,18 +113,20 @@
     const now = performance.now();
     if (r.text === last && Date.now() - lastT < 1000) { lastT = Date.now(); return; }
     last = r.text; lastT = Date.now();
-    const es = gtin(r.text) === CEFALMIN.replace(/^0+/, '');
+    const g = gtin(r.text);
+    const prod = PRODUCTOS.find((p) => p.ean.replace(/^0+/, '') === g);
+    const es = !!prod;
     const box = $('res'); box.hidden = false; box.className = 'res ' + (es ? 'ok' : 'otro');
     const segs = t0 ? ((now - t0) / 1000).toFixed(1) + ' s' : '';
-    if (es) { nOk++; if ($('tFirst').textContent === '—' && t0) $('tFirst').textContent = segs; }
+    if (es) { cuenta[prod.id] = (cuenta[prod.id] || 0) + 1; $('n-' + prod.id).textContent = cuenta[prod.id]; if ($('tFirst').textContent === '—' && t0) $('tFirst').textContent = segs; }
     else nOtro++;
-    $('nOk').textContent = nOk; $('nOtro').textContent = nOtro;
-    box.innerHTML = es ? `<span class="big">✅ ¡Leyó Cefalmin!</span><span>Código ${CEFALMIN} · ${r.format} · ${via}</span>`
-      : `<span class="big">⚠️ Leyó otro código</span><span class="mono">${r.text.replace(/[<>&\x1d]/g, ' ')}</span><span>${r.format} · no es Cefalmin</span>`;
+    $('nOtro').textContent = nOtro;
+    box.innerHTML = es ? `<span class="big">✅ ¡Leyó ${prod.nombre}!</span><span>Código ${prod.ean} · ${r.format} · ${via}</span>`
+      : `<span class="big">⚠️ Leyó otro código</span><span class="mono" style="font-size:20px">${r.text.replace(/[<>&\x1d]/g, ' ')}</span><span>${r.format} · no está en la lista de prueba</span>`;
     $('cam').classList.add('hit'); setTimeout(() => $('cam').classList.remove('hit'), 500);
     beep(es);
     const li = document.createElement('li');
-    li.textContent = `${new Date().toLocaleTimeString('es-CL', { hour12: false })} · ${es ? 'Cefalmin ✅' : 'Otro: ' + r.text.replace(/\x1d/g, ' ')} · ${r.format} · ${via}`;
+    li.textContent = `${new Date().toLocaleTimeString('es-CL', { hour12: false })} · ${es ? prod.nombre + ' ✅' : 'Otro: ' + r.text.replace(/\x1d/g, ' ')} · ${r.format} · ${via}`;
     const log = $('log'); if (log.firstElementChild && !log.firstElementChild.textContent.includes('·')) log.innerHTML = '';
     log.prepend(li);
   }
