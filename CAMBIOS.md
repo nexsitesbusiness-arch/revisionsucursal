@@ -2,6 +2,11 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Corrección: costos con separador de miles
+
+- Un Excel con costos con formato de moneda (por ejemplo "$ 3,990") se leía como **3,99** en vez de 3.990, y el reporte mostraba montos mil veces menores. Ahora un número con un solo separador seguido de exactamente 3 dígitos ("3.990", "3,990") o con separadores repetidos ("1.250.000") se lee como miles; "2,5" y "3.99" siguen siendo decimales.
+- Se detectó al grabar la guía con el maestro de `ejemplos/`. Se agregó la prueba correspondiente.
+
 ## 20-11-2026 · Contar por foto (varios códigos a la vez)
 
 - El botón **Foto** del conteo ahora lee **todos los códigos de una foto** (hasta 120). Si hay más de uno, muestra cuántas cajas de cada producto encontró y los códigos que no están en la lista (esos no se suman). Al tocar **Sumar al conteo** se registran todas; respeta "Unidades por escaneo". Queda en la bitácora ("Contó desde foto").

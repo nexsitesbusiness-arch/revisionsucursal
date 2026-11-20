@@ -41,8 +41,14 @@
     const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
     if (lc > -1 && ld > -1) {
       s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-    } else if (lc > -1) {
-      s = s.replace(',', '.');
+    } else {
+      // Un solo tipo de separador: si se repite o le siguen exactamente 3 dígitos, es de miles
+      // ("3.990", "3,990", "1.250.000"); si no, es decimal ("2,5", "3.99").
+      const sep = lc > -1 ? ',' : ld > -1 ? '.' : '';
+      if (sep) {
+        const parts = s.split(sep);
+        s = parts.length > 2 || /^\d{3}$/.test(parts[1]) ? parts.join('') : parts.join('.');
+      }
     }
     const n = parseFloat(s);
     return isNaN(n) ? 0 : n;
