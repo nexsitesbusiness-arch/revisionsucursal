@@ -325,7 +325,19 @@
     const list = $('#orderList');
     if (!db.orders.length) {
       list.innerHTML = `<div class="empty">Todavía no hay pedidos ni inventarios. ${isAdmin() ? 'Usa <b>Nuevo pedido</b> o <b>Nuevo inventario</b>, o abre el enlace o archivo que te enviaron.' : isStaff() ? 'Para tomar inventario, descarga de SPOS el reporte de inventario en PDF y usa <b>Nuevo inventario</b>.' : 'Cuando la QF cargue un inventario o llegue un pedido, aparecerá aquí.'}
-        ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px"><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>` : ''}</div>`;
+        ${isAdmin() ? `<div class="actions" style="justify-content:center;margin-top:14px;flex-wrap:wrap"><button class="btn primary" id="btnDemoFull">${ic('box')} Cargar ejemplo con Cefalmin</button><button class="btn" id="btnDemo">${ic('box')} Cargar pedido de ejemplo</button></div>
+          <p class="small muted center" style="margin-top:8px">El ejemplo con Cefalmin carga el maestro con costos, un inventario de CL0099 CENTRO y un pedido, listos para escanear.</p>` : ''}</div>`;
+      if ($('#btnDemoFull')) $('#btnDemoFull').onclick = async () => {
+        const before = db.orders.length;
+        createDemo();
+        const nuevos = db.orders.slice(before);
+        if (SERVER) {
+          db.orders = db.orders.slice(0, before);
+          try { for (const o of nuevos) await persistNewDoc(o); } catch (e) { return info('No se pudo crear', esc(e.message)); }
+        }
+        audit('Cargó datos de ejemplo', { detalle: 'maestro, inventario y pedido con Cefalmin' });
+        renderHome(true);
+      };
       if ($('#btnDemo')) $('#btnDemo').onclick = async () => {
         let o = createSamplePedido();
         if (SERVER) {
