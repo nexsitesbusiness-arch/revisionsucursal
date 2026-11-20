@@ -2,6 +2,12 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Contar por foto (varios códigos a la vez)
+
+- El botón **Foto** del conteo ahora lee **todos los códigos de una foto** (hasta 120). Si hay más de uno, muestra cuántas cajas de cada producto encontró y los códigos que no están en la lista (esos no se suman). Al tocar **Sumar al conteo** se registran todas; respeta "Unidades por escaneo". Queda en la bitácora ("Contó desde foto").
+  - *Decisión:* cuenta cajas con código visible, no adivina cajas tapadas; por eso pide revisar antes de sumar.
+- Probado con una foto de 9 etiquetas (5 Cefalmin, 3 Naproxeno, 1 desconocida): detectó las 9 y sumó bien.
+
 ## 20-11-2026 · Naproxeno (EAN 7800007176394)
 
 - Se agrega **Naproxeno comprimidos** (EAN 7800007176394) al ejemplo de la app (maestro, inventario con 15 en el sistema y pedido con lote NX2501), a las planillas de `ejemplos/`, a la hoja de códigos para imprimir y a la página de prueba de cámara (que ahora cuenta cada producto por separado y muestra cualquier otro código leído).

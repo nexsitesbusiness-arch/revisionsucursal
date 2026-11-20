@@ -1377,6 +1377,12 @@
     const ok = res.find((r) => r.isValid && r.text);
     return ok ? { text: ok.text, formato: ok.format } : null;
   }
+  // Todos los códigos de una imagen (para contar varias cajas con una sola foto).
+  async function decodeAll(src) {
+    await loadZXing();
+    const res = await ZXingWASM.readBarcodes(src, { ...ZX_OPTS, maxNumberOfSymbols: 120 });
+    return res.filter((r) => r.isValid && r.text).map((r) => ({ text: r.text, formato: r.format }));
+  }
   // Para pruebas y diagnóstico.
   window.__zx = { decodeImage, loadZXing };
 
@@ -1467,14 +1473,43 @@
     const f = e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    flash(`<span>Leyendo el código de la foto…</span>`, 'info');
+    flash(`<span>Buscando códigos en la foto…</span>`, 'info');
     try {
-      const r = await decodeImage(f);
-      if (!r) { beep(false); return flash(`${ic('alert')}<span>No se encontró un código en la foto. Acércate, enfoca y que el código quede derecho y con buena luz.</span>`, 'err'); }
-      audit('Leyó código desde foto', { detalle: r.formato });
-      handleCode(r.text);
+      const codes = await decodeAll(f);
+      if (!codes.length) { beep(false); return flash(`${ic('alert')}<span>No se encontró ningún código en la foto. Acércate, enfoca y que los códigos queden derechos y con buena luz.</span>`, 'err'); }
+      if (codes.length === 1) { audit('Leyó código desde foto', { detalle: codes[0].formato }); return handleCode(codes[0].text); }
+      await countFromPhoto(codes);
     } catch (err) { flash(`${ic('alert')}<span>${esc(err.message || 'No se pudo leer la foto.')}</span>`, 'err'); }
   };
+
+  // Contar varias cajas con una foto: cada código visible es una caja.
+  function itemForCode(raw) {
+    const gs1 = GS1.parse(raw);
+    const code = normCode(gs1 ? gs1.gtin : raw);
+    let it = current.items.find((i) => (i.codigo && normCode(i.codigo) === code) || (i.sku && normCode(i.sku) === code));
+    if (!it) { const cat = catalogFind(code); if (cat) it = current.items.find((i) => (i.sku && normCode(i.sku) === normCode(cat.sku)) || (i.codigo && cat.ean && normCode(i.codigo) === normCode(cat.ean))); }
+    return { it, code };
+  }
+  async function countFromPhoto(codes) {
+    const per = Math.max(1, parseNum($('#scanQty').value) || 1);
+    const groups = new Map();
+    for (const c of codes) {
+      const { it, code } = itemForCode(c.text);
+      const k = it ? 'i:' + it.producto : 'c:' + code;
+      const g = groups.get(k) || { nombre: it ? it.producto : null, code, n: 0, raws: [] };
+      g.n++; g.raws.push(c.text); groups.set(k, g);
+    }
+    const known = [...groups.values()].filter((g) => g.nombre), unknown = [...groups.values()].filter((g) => !g.nombre);
+    const r = await ask({ title: `Se detectaron ${codes.length} códigos en la foto`,
+      html: `<p class="small muted">Cada código visible cuenta como una caja${per > 1 ? ` de <b>${per}</b> unidades (Unidades por escaneo)` : ''}. Revisa que no falte ni sobre ninguna antes de sumar.</p>
+        <ul class="foto-res">${known.map((g) => `<li><b>${esc(g.nombre)}</b><span>${g.n} ${g.n === 1 ? 'caja' : 'cajas'}${per > 1 ? ` · ${g.n * per} unid.` : ''}</span></li>`).join('')}
+        ${unknown.map((g) => `<li class="otro"><span class="mono">${esc(g.code)}</span><span>${g.n} ${g.n === 1 ? 'caja' : 'cajas'} · no está en la lista (no se suma)</span></li>`).join('')}</ul>`,
+      buttons: [{ label: 'Cancelar', value: '' }, ...(known.length ? [{ label: 'Sumar al conteo', value: 'ok', cls: 'primary' }] : [])] });
+    if (r.value !== 'ok') return;
+    for (const g of known) for (const raw of g.raws) await processCode(raw);
+    audit('Contó desde foto', { detalle: known.map((g) => `${g.nombre}: ${g.n}`).join(' · ') + (unknown.length ? ` · ${unknown.reduce((s, g) => s + g.n, 0)} códigos fuera de la lista` : '') });
+    flash(`${ic('check')}<span>Sumado desde la foto: ${known.map((g) => `${esc(g.nombre)} +${g.n * per}`).join(' · ')}</span>`, 'ok');
+  }
 
   // =========================================================
   // RESULTADOS

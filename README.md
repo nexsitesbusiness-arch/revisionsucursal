@@ -69,7 +69,7 @@ El escáner usa **ZXing-C++** (WebAssembly), incluido en la app (`vendor/zxing/`
 - Lee **EAN-13/8, UPC, Code 128/39/93, ITF, Codabar, GS1 DataBar, DataMatrix (con lote y vencimiento) y QR**, también códigos pequeños, inclinados, borrosos o con poco contraste.
 - Funciona igual en **iPhone/iPad, Android y computador**, y **sin internet** (queda guardado en el equipo).
 - Lee solo lo que está dentro del **recuadro** de la cámara. Un código cuenta **una vez mientras siga a la vista**: para sumar otra caja igual, se saca del recuadro y se vuelve a mostrar (o se usa *Unidades por escaneo*).
-- **Foto:** si la cámara en vivo no abre o un código cuesta, el botón *Foto* lee el código desde una foto.
+- **Foto:** si la cámara en vivo no abre o un código cuesta, el botón *Foto* lee el código desde una foto. Si la foto muestra **varias cajas**, lee todos los códigos, dice cuántas cajas hay de cada producto y las suma al conteo después de confirmar.
 - Linterna, si el equipo la tiene.
 
 En pruebas con 20 imágenes difíciles (códigos chicos, rotados, borrosos y de bajo contraste), el lector actual leyó 20 de 20; el anterior (html5-qrcode) leía 12 de 20.
