@@ -503,3 +503,9 @@ table.log td.when { white-space: nowrap; }
 #reader .reader-frame { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 #reader .reader-frame span { width: 80%; height: 60%; border: 2px solid rgba(255, 255, 255, .85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); }
 #btnScanPhoto { flex: none; }
+
+/* Demo: entrar con un toque */
+#loginDemo:not([hidden]) { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
+#loginDemo .demo-title { font-weight: 600; color: var(--text); font-size: 14px; }
+#loginDemo .demo-btns { display: grid; gap: 8px; }
+#loginDemo .demo-btns .btn { justify-content: center; }

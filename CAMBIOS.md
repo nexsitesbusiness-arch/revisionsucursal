@@ -2,6 +2,12 @@
 
 Formato: fecha (dd-mm-aaaa) · qué cambió en simple · decisiones y por qué.
 
+## 20-11-2026 · Demo: entrar con un toque y datos de ejemplo
+
+- En la demo (solo con `REVISION_DEMO`), la pantalla de ingreso tiene botones **Administrador**, **QF** y **Auxiliar** para entrar con un toque.
+- La demo trae listos un **maestro con costos**, un **inventario de CL0099 CENTRO** (9 productos, incluido Cefalmin) y un **pedido que llega** (con lotes y vencimientos). Los códigos EAN son válidos, para poder imprimirlos y escanearlos.
+- El botón "Cargar pedido de ejemplo" de la app normal no cambia.
+
 ## 20-11-2026 · Publicación en Cloudflare Pages
 
 - Nuevo `servidor/publicar-estatico.sh`: arma `_site` solo con los archivos de la app. Lo usan GitHub Pages y Cloudflare Pages.
